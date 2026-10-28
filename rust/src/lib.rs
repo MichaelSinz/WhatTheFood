@@ -56,6 +56,26 @@ pub struct Snapshot {
     pub locations: Vec<LocationResult>,
 }
 
+impl Snapshot {
+    /// Whether more than half of the linked locations failed to fetch.
+    ///
+    /// Unlinked locations are excluded; successful empty/closed menus count as
+    /// successes regardless of item count.
+    pub fn has_majority_failures(&self) -> bool {
+        let linked = self
+            .locations
+            .iter()
+            .filter(|location| location.location.url.is_some())
+            .count();
+        let failed = self
+            .locations
+            .iter()
+            .filter(|location| location.status == "error")
+            .count();
+        failed > linked / 2
+    }
+}
+
 /// One location's menus, nonfatal notices, or explicit fetch failure.
 ///
 /// Status is `ok`, `error`, or `no_ordering_url`.  Failed locations have no items;
@@ -266,7 +286,8 @@ fn minutes(value: &str) -> Result<u32> {
 /// Choose today's earliest complete pickup interval at noon or later.
 ///
 /// Honor the provider's buffer and align intervals to each opening window, not
-/// midnight.  `None` means no remaining slot; overnight windows are unsupported.
+/// midnight.  Midnight closing is the end of today; other overnight windows are
+/// unsupported.  `None` means no remaining slot.
 fn slot(store: &Value, scheduling: &Value, now: DateTime<Utc>) -> Result<Option<Value>> {
     let zone = zone(store)?;
     let interval: u32 = text(scheduling, "intervalTime")?.parse()?;
@@ -302,6 +323,11 @@ fn slot(store: &Value, scheduling: &Value, now: DateTime<Utc>) -> Result<Option<
     for window in windows {
         let opens = minutes(&text(&window, "opens")?)?;
         let closes = minutes(&text(&window, "closes")?)?;
+        let closes = if closes == 0 && opens > 0 {
+            24 * 60
+        } else {
+            closes
+        };
         ensure!(
             closes >= opens,
             "Overnight pickup windows are not supported"
@@ -312,7 +338,7 @@ fn slot(store: &Value, scheduling: &Value, now: DateTime<Utc>) -> Result<Option<
                 .filter(|start| *start >= target && *start + interval <= closes),
         );
     }
-    let clock = |n: u32| format!("{:02}:{:02}", n / 60, n % 60);
+    let clock = |n: u32| format!("{:02}:{:02}", n / 60 % 24, n % 60);
     Ok(candidates
         .into_iter()
         .min()
@@ -891,6 +917,33 @@ mod tests {
     }
 
     #[test]
+    fn schedules_accept_midnight_closing_without_losing_daytime_slots() {
+        let scheduling = json!({"intervalTime": 15, "bufferTime": 20});
+        let mut store = store();
+        store["availableAt"] = json!({
+            "openWindowTimeFrames": [
+                {"opens": "11:00 am", "closes": "2:00 pm"},
+                {"opens": "11:58 pm", "closes": "12:00 AM"}
+            ]
+        });
+        assert_eq!(
+            slot(&store, &scheduling, now("2026-10-28T12:00:00Z")).unwrap(),
+            Some(json!({"startTime":"12:00", "endTime":"12:15"}))
+        );
+        assert_eq!(
+            slot(&store, &scheduling, now("2026-10-28T22:00:00Z")).unwrap(),
+            None
+        );
+        store["availableAt"] = json!({"opens": "11:45 pm", "closes": "00:00"});
+        assert_eq!(
+            slot(&store, &scheduling, now("2026-10-29T06:25:00Z")).unwrap(),
+            Some(json!({"startTime":"23:45", "endTime":"00:00"}))
+        );
+        store["availableAt"]["closes"] = json!("2:00 am");
+        assert!(slot(&store, &scheduling, now("2026-10-28T12:00:00Z")).is_err());
+    }
+
+    #[test]
     fn dated_vendor_hours_reject_overnight_windows() {
         let mut concept = json!({"availableAt":{"open":"11:00 am","close":"2:00 pm"}});
         let window = opening_window(&concept, &store(), now("2026-10-23T17:00:00Z"))
@@ -1183,6 +1236,43 @@ mod tests {
                 .iter()
                 .all(|item| item.ordering_category_path.is_none())
         );
+    }
+
+    #[tokio::test]
+    async fn majority_failures_exclude_unlinked_and_count_empty_successes() {
+        for (successful, failed, unlinked, expected) in [
+            (0, 0, 1, false),
+            (1, 0, 0, false),
+            (0, 1, 0, true),
+            (0, 1, 3, true),
+            (2, 1, 0, false),
+            (1, 1, 2, false),
+            (1, 2, 3, true),
+        ] {
+            let locations = (0..successful + failed + unlinked)
+                .map(|index| Location {
+                    name: format!("Location {index}"),
+                    url: (index < successful + failed)
+                        .then(|| format!("https://site{index}.invalid/")),
+                })
+                .collect();
+            let mut snapshot = fetch_all(locations, 2).await.unwrap();
+            for location in snapshot.locations.iter_mut().take(successful) {
+                location.status = "ok";
+                location.error = None;
+            }
+            assert!(
+                snapshot
+                    .locations
+                    .iter()
+                    .all(|location| location.items.is_empty())
+            );
+            assert_eq!(
+                snapshot.has_majority_failures(),
+                expected,
+                "{successful} successful, {failed} failed, {unlinked} unlinked"
+            );
+        }
     }
 
     #[tokio::test]

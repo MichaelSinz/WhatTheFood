@@ -1,7 +1,7 @@
 //! Command-line pipeline: load and select locations, fetch menus, then publish.
 //!
 //! Stdout is reserved for the generated script; diagnostics go to stderr.
-//! A partial snapshot is still published but produces a failing exit status.
+//! Partial snapshots warn unless more than half of the linked locations failed.
 //! Invalid input and fatal fetch/write errors also fail, without claiming success.
 
 mod cli;
@@ -15,8 +15,7 @@ use std::process::ExitCode;
 #[tokio::main]
 async fn main() -> ExitCode {
     match run(Args::parse()).await {
-        Ok(true) => ExitCode::SUCCESS,
-        Ok(false) => ExitCode::FAILURE,
+        Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("Error: {error:#}");
             ExitCode::FAILURE
@@ -24,11 +23,10 @@ async fn main() -> ExitCode {
     }
 }
 
-/// Publish one snapshot, returning whether every linked location succeeded.
+/// Publish one snapshot, warning if any linked locations failed.
 ///
-/// `Ok(false)` means partial data was written, not that publication failed.
-/// `Err` covers invalid input and fatal fetch or output errors.
-async fn run(args: Args) -> Result<bool> {
+/// `Err` covers majority location failures, invalid input, and fatal fetch/output errors.
+async fn run(args: Args) -> Result<()> {
     let catalog = std::fs::read_to_string(&args.urls)
         .with_context(|| format!("Reading {}", args.urls.display()))?;
     let mut locations: Vec<Location> = serde_json::from_str(&catalog)
@@ -53,7 +51,7 @@ async fn run(args: Args) -> Result<bool> {
             .context("Writing menu script to stdout")?;
     }
     eprintln!(
-        "Wrote {} items to {}{}",
+        "Wrote {} items to {}",
         snapshot
             .locations
             .iter()
@@ -62,12 +60,14 @@ async fn run(args: Args) -> Result<bool> {
         args.output
             .as_ref()
             .map(|path| path.display().to_string())
-            .unwrap_or("stdout".into()),
-        if snapshot.complete {
-            ""
-        } else {
-            " (PARTIAL: some locations failed)"
-        }
+            .unwrap_or("stdout".into())
     );
-    Ok(snapshot.complete)
+    anyhow::ensure!(
+        !snapshot.has_majority_failures(),
+        "More than half of the linked locations failed; incomplete snapshot written; see diagnostics above."
+    );
+    if !snapshot.complete {
+        eprintln!("Warning: PARTIAL snapshot: some locations failed; see diagnostics above.");
+    }
+    Ok(())
 }

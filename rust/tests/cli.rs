@@ -15,7 +15,7 @@ fn data(script: &[u8]) -> Value {
 }
 
 #[test]
-fn stdout_contains_only_data_and_partial_runs_exit_nonzero() {
+fn majority_failures_exit_nonzero_for_stdout_and_named_output() {
     let directory = tempfile::tempdir().unwrap();
     let catalog = directory.path().join("catalog.json");
     std::fs::write(
@@ -27,23 +27,36 @@ fn stdout_contains_only_data_and_partial_runs_exit_nonzero() {
         .to_string(),
     )
     .unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_food-finder"))
-        .arg("--urls")
-        .arg(&catalog)
-        .output()
-        .unwrap();
-    assert_eq!(output.status.code(), Some(1));
-    let script = std::str::from_utf8(&output.stdout).unwrap();
-    assert!(script.contains("const menuData = {\n  \"schemaVersion\":"));
-    assert!(script.contains("\n  \"locations\": [\n    {\n"));
-    let snapshot = data(&output.stdout);
-    assert_eq!(snapshot["complete"], false);
-    assert_eq!(snapshot["locations"][0]["status"], "no_ordering_url");
-    assert_eq!(snapshot["locations"][1]["status"], "error");
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("Invalid ordering URL"));
-    assert!(stderr.contains("PARTIAL"));
-    assert!(!stderr.contains("const menuData"));
+    let path = directory.path().join("menus.js");
+    for named_output in [false, true] {
+        std::fs::write(&path, "previous menus").unwrap();
+        let mut command = Command::new(env!("CARGO_BIN_EXE_food-finder"));
+        command.arg("--urls").arg(&catalog);
+        if named_output {
+            command.arg("--output").arg(&path);
+        }
+        let output = command.output().unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        let script = if named_output {
+            assert!(output.stdout.is_empty());
+            std::fs::read(&path).unwrap()
+        } else {
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), "previous menus");
+            output.stdout
+        };
+        let text = std::str::from_utf8(&script).unwrap();
+        assert!(text.contains("const menuData = {\n  \"schemaVersion\":"));
+        assert!(text.contains("\n  \"locations\": [\n    {\n"));
+        let snapshot = data(&script);
+        assert_eq!(snapshot["complete"], false);
+        assert_eq!(snapshot["locations"][0]["status"], "no_ordering_url");
+        assert_eq!(snapshot["locations"][1]["status"], "error");
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(stderr.contains("Invalid ordering URL"));
+        assert!(stderr.contains("Error: More than half of the linked locations failed"));
+        assert!(!stderr.contains("Warning: PARTIAL"));
+        assert!(!stderr.contains("const menuData"));
+    }
 }
 
 #[test]
