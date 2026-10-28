@@ -74,6 +74,16 @@ Only the disabled location IDs are persisted, as a small array under `what-the-f
 
 The browser restrictions were checked on Food Hall 6: the API login did not grant the standalone page cross-origin access, and the site sends `X-Frame-Options: DENY` plus a CSP `frame-ancestors` allowlist that excludes an arbitrary standalone page.  An iframe also would not grant cross-origin script access.  Generating the data script outside the browser avoids these restrictions without proxying through a third party or weakening browser security.  `menus.js` is executable JavaScript: deploy only a script produced by the trusted scraper, not arbitrary downloaded scripts.
 
+## GitHub Pages deployment
+
+The workflow in `.github/workflows/pages.yml` runs `make web` on `ubuntu-latest` and publishes only `web/` through GitHub Pages.  It starts at 7:17 AM in `America/Los_Angeles` every Monday through Friday, automatically adjusting for daylight saving time.  GitHub may delay scheduled runs, and build time adds to the publication delay.  The workflow also supports manual runs through **Actions → Publish GitHub Pages → Run workflow**.
+
+Enable deployment by selecting **GitHub Actions** under **Settings → Pages → Build and deployment → Source** and merging the workflow into the default branch.  Each successful deployment replaces the previous site at `https://MichaelSinz.github.io/WhatTheFood/`.  Build or menu-fetch failures prevent deployment, leaving the previous site unchanged.  Generated files are uploaded as a deployment artifact, not committed to the repository.
+
+The build job has read-only repository access; only the deployment job receives `pages: write` and `id-token: write` permissions.  Deployments are serialized without canceling an in-progress run.  Menu providers must accept requests from GitHub-hosted Linux runners.
+
+GitHub automatically disables scheduled workflows in public repositories after 60 days without repository activity.  Re-enable the workflow from the Actions tab if this happens.
+
 ## Developer checks
 
 ```sh
