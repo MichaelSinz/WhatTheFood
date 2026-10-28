@@ -30,7 +30,7 @@ jobs:
           rustup default stable
 
       - name: Test, build, and fetch fresh menus
-        run: make web
+        run: make quick-web
 
       - name: Upload website
         uses: actions/upload-pages-artifact@v4

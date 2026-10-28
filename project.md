@@ -76,7 +76,7 @@ The browser restrictions were checked on Food Hall 6: the API login did not gran
 
 ## GitHub Pages deployment
 
-The workflow in `.github/workflows/pages.yml` runs `make web` on `ubuntu-latest` and publishes only `web/` through GitHub Pages.  It starts at 7:17 AM in `America/Los_Angeles` every Monday through Friday, automatically adjusting for daylight saving time.  GitHub may delay scheduled runs, and build time adds to the publication delay.  The workflow also supports manual runs through **Actions → Publish GitHub Pages → Run workflow**.
+The workflow in `.github/workflows/pages.yml` runs `make quick-web` on `ubuntu-latest` and publishes only `web/` through GitHub Pages.  This target builds the HTML, runs the Rust unit/CLI tests, and reuses the native debug scraper built and exercised by those tests to fetch menus.  It skips the separate release build because the scraper binary is not deployed; normal `make web` builds still use release mode.  It starts at 7:17 AM in `America/Los_Angeles` every Monday through Friday, automatically adjusting for daylight saving time.  GitHub may delay scheduled runs, and build time adds to the publication delay.  The workflow also supports manual runs through **Actions → Publish GitHub Pages → Run workflow**.
 
 Enable deployment by selecting **GitHub Actions** under **Settings → Pages → Build and deployment → Source** and merging the workflow into the default branch.  Each successful deployment replaces the previous site at `https://MichaelSinz.github.io/WhatTheFood/`.  Build or menu-fetch failures prevent deployment, leaving the previous site unchanged.  Generated files are uploaded as a deployment artifact, not committed to the repository.
 

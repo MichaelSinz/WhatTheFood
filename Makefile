@@ -11,7 +11,7 @@ FOOD_FINDER = rust/target/$(if $(TARGET),$(TARGET)/)release/food-finder
 PLAYWRIGHT_BROWSERS_PATH ?= $(CURDIR)/.tmp/playwright
 export PLAYWRIGHT_BROWSERS_PATH
 
-.PHONY: all food-finder web html menus test-rust check setup-test test-web test clean help
+.PHONY: all food-finder web quick-web html menus test-rust check setup-test test-web test clean help
 
 all: web
 
@@ -19,6 +19,9 @@ food-finder: test-rust
 	$(CARGO) build --manifest-path rust/Cargo.toml --release --locked $(TARGET_ARG)
 
 web: html menus
+
+quick-web: html test-rust
+	rust/target/debug/food-finder --urls "$(URLS)" --concurrency "$(CONCURRENCY)" --output web/menus.js
 
 html: web/index.html
 
@@ -65,6 +68,7 @@ help:
 		'Node.js 22+, npm, and Playwright are optional, for browser tests only.' \
 		'' \
 		'make / make web   Test Rust, build the release scraper, build HTML, fetch fresh menus' \
+		'make quick-web    Build HTML, run Rust tests, fetch menus with the tested debug scraper' \
 		'make food-finder  Run Rust tests and build rust/target/release/food-finder' \
 		'make html         Build web/index.html without fetching menus or building Rust' \
 		'make menus        Test/build the scraper and fetch fresh web/menus.js' \
