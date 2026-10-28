@@ -1,0 +1,23 @@
+[package]
+name = "food-finder"
+version = "0.1.0"
+edition = "2024"
+description = "Fetch campus menus into a standalone website's menus.js"
+
+[dependencies]
+anyhow = "1"
+chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
+clap = { version = "4", features = ["derive"] }
+futures = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "cookies", "json", "gzip"] }
+rust_decimal = { version = "1", default-features = false, features = ["std"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

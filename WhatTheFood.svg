@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1000 1000">
+  <title>What the Food?</title>
+  <defs>
+    <linearGradient id="frame" x1="0" y1="0" x2="0.3" y2="1">
+      <stop stop-color="#4b626e"/>
+      <stop offset="0.48" stop-color="#344751"/>
+      <stop offset="1" stop-color="#25323a"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#b2bdbe"/>
+      <stop offset="0.28" stop-color="#687e88"/>
+      <stop offset="0.65" stop-color="#35464e"/>
+      <stop offset="1" stop-color="#8c9794"/>
+    </linearGradient>
+    <radialGradient id="frameLight" cx="48%" cy="28%" r="75%">
+      <stop stop-color="#657d89" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#17232c" stop-opacity="0.14"/>
+    </radialGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#0097df"/>
+      <stop offset="1" stop-color="#006db3"/>
+    </linearGradient>
+    <linearGradient id="green" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#21982a"/>
+      <stop offset="1" stop-color="#13741c"/>
+    </linearGradient>
+    <linearGradient id="red" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#ef3900"/>
+      <stop offset="1" stop-color="#cc2a00"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#ffbf08"/>
+      <stop offset="1" stop-color="#ffa000"/>
+    </linearGradient>
+    <linearGradient id="ivory" x1="0" y1="0" x2="0.2" y2="1">
+      <stop stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#f4ffff"/>
+    </linearGradient>
+    <filter id="tileShadow" x="-10%" y="-10%" width="120%" height="120%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="1" stdDeviation="2.5" flood-color="#142b35" flood-opacity="0.55"/>
+    </filter>
+    <filter id="iconShadow" x="-12%" y="-12%" width="124%" height="130%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#193b36" flood-opacity="0.5"/>
+    </filter>
+    <filter id="grain" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.52" numOctaves="3" seed="12"/>
+      <feColorMatrix type="saturate" values="0"/>
+      <feComponentTransfer>
+        <feFuncA type="linear" slope="0.035"/>
+      </feComponentTransfer>
+    </filter>
+    <rect id="frameShape" width="1000" height="1000"/>
+    <clipPath id="frameClip">
+      <use href="#frameShape"/>
+    </clipPath>
+  </defs>
+
+  <use href="#frameShape" fill="url(#frame)"/>
+  <use href="#frameShape" fill="url(#frameLight)"/>
+
+  <g transform="translate(100 100) scale(1.192250373) translate(-176 -176)">
+    <g filter="url(#tileShadow)" stroke-width="2">
+      <path d="M310 177H480Q496 177 496 193V480Q496 496 480 496H193Q177 496 177 480V311C177 236 236 177 310 177Z"
+            fill="url(#blue)" stroke="#1586be"/>
+      <path d="M543 177H714C789 177 846 235 846 310V479Q846 496 829 496H543Q527 496 527 480V194Q527 177 543 177Z"
+            fill="url(#green)" stroke="#31873b"/>
+      <path d="M194 527H479Q496 527 496 544V830Q496 846 480 846H311C234 846 177 789 177 713V544Q177 527 194 527Z"
+            fill="url(#red)" stroke="#ae4826"/>
+      <path d="M544 527H829Q846 527 846 544V712C846 788 790 846 714 846H544Q527 846 527 829V544Q527 527 544 527Z"
+            fill="url(#gold)" stroke="#e2b448"/>
+    </g>
+
+    <g fill="url(#ivory)" filter="url(#iconShadow)">
+      <path fill-rule="evenodd" d="M383 293H405C442 293 447 352 404 361L382 365L386 347L399 346C421 342 424 309 404 309H392Z"/>
+      <path d="M264 293H396C398 329 390 363 368 385H293C270 368 258 323 264 293Z"/>
+      <path d="M245 399H412C411 410 402 417 389 417H268C256 417 248 410 245 399Z"/>
+
+      <path d="M623 253Q627 249 632 254L666 287C675 296 677 303 675 317L674 323L678 329L671 337L665 333C652 336 641 337 631 328L596 291Q590 285 595 281Q599 277 604 282L632 310Q636 314 640 310Q643 307 639 303L610 275Q605 270 609 266Q613 262 618 267L647 295Q651 299 654 295Q657 292 653 288L625 261Q620 257 623 253Z"/>
+      <path d="M712 356Q715 356 719 360L762 402C775 414 760 432 748 419L700 372Q697 369 701 365Z"/>
+      <path d="M757 262Q772 246 770 268C769 296 757 322 737 337Q727 345 715 342L707 341L632 419C619 432 602 415 615 402L757 262Z"/>
+
+      <path d="M253 654C259 625 293 607 336 607C379 607 414 624 421 652Q426 667 414 667H260Q249 667 253 654Z"/>
+      <path d="M260 681H331Q336 681 341 684L369 697Q375 700 381 696L398 684Q402 681 409 681H415C433 681 433 704 415 704H261C243 704 242 681 260 681Z"/>
+      <path d="M260 716H414Q425 716 422 729C420 740 412 747 402 747H272C261 747 254 741 252 731Q249 716 260 716Z"/>
+
+      <path d="M687 657L731 583Q733 580 736 582L743 586L698 657Z"/>
+      <path d="M713 657L765 602Q768 599 771 602L775 606Q778 609 774 613L726 658Z"/>
+      <path d="M594 670H775C774 706 755 733 727 748V762H641V748C612 731 595 705 594 670Z"/>
+    </g>
+  </g>
+</svg>
