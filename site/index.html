@@ -96,6 +96,7 @@
     .dialog-header { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 1rem 1.25rem; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--surface); z-index: 1; }
     .dialog-body { padding: 1.25rem; }
     .dialog-body > * + * { margin-top: 1rem; }
+    .inline-icon { display: inline-grid; place-items: center; vertical-align: middle; padding: .2rem; border: 1px solid var(--line); border-radius: .65rem; background: var(--surface); }
     .location-row { padding: 1rem 0; border-bottom: 1px solid var(--line); }
     .location-row:first-child { padding-top: 0; }
     .location-row:last-child { border-bottom: 0; padding-bottom: 0; }
@@ -238,10 +239,12 @@
     <div class="dialog-header"><h2 id="about-title">What the Food</h2><button data-close>Done</button></div>
     <div class="dialog-body">
       <p>WTF is a common phrase when we realize that something isn't working as it should (or could).</p>
-      <p>Campus food services have separate websites, vendors move around, and menus change daily.  That missing search was a "What the Food?" moment for us.</p>
+      <p>Campus food services have separate websites, vendors move around, and menus change daily.  The lack of a unified search was a "What the Food?" moment for us.</p>
       <p>This page searches a snapshot produced by the Rust scraper.  It never contacts the menu APIs.  To update the menus, run the scraper again, replace menus.js, and reload this page.</p>
       <p>Search requires every word to match.  Use double quotes for a phrase within one field, such as "Food hall 6" chicken.  Matching ignores case and accents; results keep your chosen sort order.</p>
-      <p class="muted">Dates follow America/Los_Angeles.  Old menus are labeled as old, not presented as today's offerings.  Only location choices are saved in local storage, with session storage as a fallback.  Menus stay in menus.js; search and sorting stay in memory.</p>
+      <p>Use the Locations button <button id="about-locations-button" type="button" class="inline-icon" aria-label="Locations" title="Locations"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M6 12h12M9 18h6"/></svg></button> to choose which locations to include in searches and results.  Your choices are stored locally in your browser.  Nothing is sent to the server.</p>
+      <p>Source code in the <a href="https://github.com/MichaelSinz/WhatTheFood">WhatTheFood</a> GitHub repository.</p>
+      <p class="muted">Dates use the America/Los_Angeles time zone.  Old menus are labeled as old, not presented as today's offerings.  Only location choices are saved in local storage, with session storage as a fallback.  Menus stay in menus.js; search and sorting stay in memory.</p>
     </div>
   </dialog>
   <noscript><style>#loading-screen { display: none; }</style><p class="warning">JavaScript is required to search menus.</p></noscript>
@@ -364,6 +367,10 @@
         } });
       }
       $("about-button").onclick = () => showDialog("about-dialog");
+      $("about-locations-button").onclick = () => {
+        $("about-dialog").close();
+        showDialog("locations-dialog");
+      };
       $("locations-button").onclick = $("data-status").onclick = $("empty-locations").onclick = () => showDialog("locations-dialog");
       $("reload-button").onclick = () => window.location.reload();
       $("detail-dialog").addEventListener("close", () => { selectedItem = null; });

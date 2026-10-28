@@ -176,7 +176,10 @@ for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]]) {
       assert.match(await page.locator("#ordering-link").getAttribute("href"), /\/menu\/site\/profile\/vendor\/4$/);
       await page.locator("#detail-dialog [data-close]").click();
       await page.locator("#query").fill("fish");
-      await page.locator("#locations-button").click();
+      await page.locator("#about-button").click();
+      await page.locator("#about-locations-button").click();
+      assert.equal(await page.locator("#about-dialog").isVisible(), false);
+      assert.equal(await page.locator("#locations-dialog").isVisible(), true);
       await page.getByRole("switch", { name: "Cafe 10", exact: true }).uncheck();
       await page.locator("#locations-dialog [data-close]").click();
       assert.match(await page.locator("#summary").innerText(), /0 matches/);
