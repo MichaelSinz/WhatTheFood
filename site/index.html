@@ -1,594 +1,274 @@
 <!doctype html>
-<!-- Generated into web/index.html by make html, with WhatTheFood.svg embedded. -->
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
-  <meta name="color-scheme" content="light dark">
-  <title>What the Food - Start Menu</title>
-  <style>
-    :root {
-      font: 16px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      color-scheme: light dark;
-      --bg: #f3f5f7; --surface: #fff; --text: #192b35; --muted: #526570;
-      --line: #dce3e7; --accent: #006d77; --tint: #e7f2f2; --warning: #884600;
-      --warning-bg: #fff3dc; --shadow: 0 16px 70px #112c3940;
-    }
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --bg: #111a20; --surface: #1b2830; --text: #ecf2f5; --muted: #abbfc9;
-        --line: #354750; --accent: #76d9d4; --tint: #203d42; --warning: #ffd296;
-        --warning-bg: #42321f; --shadow: 0 16px 70px #0008;
-      }
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0; height: 100dvh; overflow: hidden;
-      display: flex; flex-direction: column; background: var(--bg); color: var(--text);
-    }
-    button, input, select { font: inherit; color: inherit; }
-    button, select, .action {
-      min-height: 44px; border: 1px solid var(--line); border-radius: .65rem;
-      background: var(--surface); padding: .5rem .8rem;
-    }
-    button, select { cursor: pointer; }
-    button:hover, .action:hover { background: var(--tint); }
-    button:disabled { opacity: .55; cursor: default; }
-    :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
-    a { color: var(--accent); }
-    h1, h2, p { margin: 0; }
-    h1 { font-size: 1.35rem; letter-spacing: -.03em; }
-    h2 { font-size: 1.3rem; }
-    .muted, small { color: var(--muted); }
-    .app-header {
-      display: flex; align-items: center; gap: .75rem; background: var(--surface);
-      padding: .8rem max(1rem, env(safe-area-inset-right)) .8rem max(1rem, env(safe-area-inset-left));
-      border-bottom: 1px solid var(--line); flex: none;
-    }
-    .brand {
-      display: grid; place-items: center; width: 44px; height: 44px; flex: none;
-      border-radius: .8rem; background: var(--accent); color: var(--surface);
-      font-weight: 850; font-size: .8rem; letter-spacing: -.08em;
-    }
-    .titles { flex: 1; min-width: 0; }
-    .eyebrow { color: var(--muted); font-size: .7rem; font-weight: 650; letter-spacing: .12em; text-transform: uppercase; }
-    .icon-button { display: grid; place-items: center; width: 44px; padding: 0; flex: none; }
-    #compact-sort { display: none; position: relative; min-height: 44px; border: 1px solid var(--line); border-radius: .65rem; background: var(--surface); }
-    #compact-sort select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; padding: 0; }
-    #compact-sort:focus-within { outline: 3px solid var(--accent); outline-offset: 3px; }
-    svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.8; }
-    .status-bar { padding: .65rem 1rem; display: flex; flex-wrap: wrap; align-items: center; gap: .3rem 1rem; border-bottom: 1px solid var(--line); }
-    #summary { font-weight: 650; }
-    #data-status { background: none; border: 0; text-align: left; padding: 0; min-height: 28px; color: var(--muted); font-size: .85rem; }
-    .warning { color: var(--warning); background: var(--warning-bg); padding: .65rem 1rem; font-size: .9rem; }
-    [hidden] { display: none !important; }
-    #loading-screen { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; background: var(--bg); }
-    .loading-artwork { width: min(90vw, 90dvh); aspect-ratio: 1; }
-    .loading-artwork > svg { display: block; width: 100%; height: 100%; stroke: none; }
-    #results { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
-    table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; background: var(--surface); }
-    th { position: sticky; top: 0; z-index: 1; background: var(--bg); text-align: left; border-bottom: 1px solid var(--line); }
-    th button { background: none; border: none; border-radius: 0; width: 100%; text-align: left; padding: .55rem 1rem; font-size: .85rem; color: var(--muted); }
-    th:nth-child(1) { width: 20%; } th:nth-child(2) { width: 19%; }
-    th:nth-child(3) { width: 20%; } th:nth-child(4) { width: 31%; } th:nth-child(5) { width: 10%; }
-    td { padding: .8rem 1rem; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; font-size: .9rem; }
-    tbody tr { cursor: pointer; }
-    tbody tr:hover { background: var(--tint); }
-    .item-button { border: 0; background: none; border-radius: .25rem; min-height: 0; padding: 0; text-align: left; font-weight: 650; color: var(--accent); }
-    .price { font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
-    .empty { max-width: 35rem; margin: 10vh auto; padding: 2rem; text-align: center; }
-    .empty h2 { margin-bottom: .6rem; }
-    .empty button { margin-top: 1rem; }
-    #more { display: block; margin: 1rem auto; }
-    footer {
-      flex: none; display: flex; gap: .65rem; align-items: center; flex-wrap: wrap;
-      background: var(--surface); border-top: 1px solid var(--line);
-      padding: .8rem max(1rem, env(safe-area-inset-right)) max(.8rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
-    }
-    .search { flex: 1 1 13rem; display: flex; align-items: center; border: 1px solid var(--line); border-radius: .7rem; padding-left: .75rem; background: var(--bg); }
-    .search input { width: 100%; min-width: 0; min-height: 44px; border: 0; background: none; padding: .55rem .65rem; outline-offset: -3px; }
-    .search input::-webkit-search-cancel-button { display: none; }
-    .search button { border: 0; background: none; color: var(--muted); }
-    .sort-controls { display: flex; gap: .4rem; align-items: center; }
-    .sort-controls label { font-size: .85rem; color: var(--muted); }
-    dialog { color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 1rem; padding: 0; width: min(94vw, 40rem); max-height: 88dvh; box-shadow: var(--shadow); }
-    dialog::backdrop { background: #10232b99; backdrop-filter: blur(3px); }
-    .dialog-header { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 1rem 1.25rem; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--surface); z-index: 1; }
-    .dialog-body { padding: 1.25rem; }
-    .dialog-body > * + * { margin-top: 1rem; }
-    .inline-icon { display: inline-grid; place-items: center; vertical-align: middle; padding: .2rem; border: 1px solid var(--line); border-radius: .65rem; background: var(--surface); }
-    .location-row { padding: 1rem 0; border-bottom: 1px solid var(--line); }
-    .location-row:first-child { padding-top: 0; }
-    .location-row:last-child { border-bottom: 0; padding-bottom: 0; }
-    .location-label { display: flex; align-items: center; justify-content: space-between; gap: 1rem; font-weight: 600; cursor: pointer; min-height: 44px; }
-    input[type=checkbox] { width: 24px; height: 24px; accent-color: var(--accent); flex: none; }
-    .location-status { font-size: .85rem; color: var(--muted); overflow-wrap: anywhere; white-space: pre-line; }
-    .location-status.failed { color: var(--warning); }
-    dl { display: grid; grid-template-columns: max-content 1fr; gap: .55rem 1rem; }
-    dt { color: var(--muted); } dd { margin: 0; overflow-wrap: anywhere; }
-    #detail-price { font-size: 1.5rem; font-weight: 700; }
-    #detail-description { white-space: pre-wrap; overflow-wrap: anywhere; }
-    .actions { display: grid; gap: .65rem; }
-    .action { display: block; text-align: center; text-decoration: none; }
-    .primary { background: var(--accent); color: var(--surface); border-color: var(--accent); font-weight: 650; }
-    .primary:hover { background: var(--accent); filter: brightness(.9); }
-    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
-    @media (max-width: 53.124rem) {
-      .app-header { gap: .5rem; }
-      .brand { display: none; }
-      .eyebrow { font-size: .65rem; }
-      .status-bar { gap: 0 .7rem; }
-      table, tbody { display: block; }
-      thead { display: none; }
-      tbody tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; padding: .9rem 1rem; border-bottom: 1px solid var(--line); gap: .15rem .75rem; }
-      td { display: block; border: 0; padding: 0; }
-      td:nth-child(1) { grid-row: 2; grid-column: 1 / -1; font-weight: 550; margin-top: .2rem; }
-      td:nth-child(2) { grid-row: 3; grid-column: 1 / -1; color: var(--muted); font-size: .8rem; }
-      td:nth-child(3) { grid-row: 4; grid-column: 1 / -1; color: var(--muted); font-size: .8rem; }
-      td:nth-child(4) { grid-row: 1; grid-column: 1; font-size: 1rem; }
-      td:nth-child(5) { grid-row: 1; grid-column: 2; font-weight: 650; }
-      footer { gap: .5rem; padding-top: .6rem; flex-wrap: nowrap; }
-      .search { flex: 1 1 0; min-width: 0; }
-      .sort-controls { display: none; }
-      #compact-sort { display: grid; }
-    }
-    @media (max-width: 23rem) {
-      h1 { font-size: 1.1rem; }
-      .eyebrow { display: none; }
-      tbody tr { grid-template-columns: 1fr; }
-      td:nth-child(5) { grid-column: 1; grid-row: 2; text-align: left; white-space: normal; }
-      td:nth-child(1) { grid-row: 3; } td:nth-child(2) { grid-row: 4; } td:nth-child(3) { grid-row: 5; }
-    }
-  </style>
-</head>
-<body>
-  <div id="loading-screen" role="status" aria-label="Loading menu items">
-    <div class="loading-artwork" aria-hidden="true">
-<!-- WHAT_THE_FOOD_ICON -->
-    </div>
-  </div>
-  <header class="app-header">
-    <div class="brand" aria-hidden="true">WTF</div>
-    <div class="titles"><p class="eyebrow">What the Food</p><h1>Start Menu</h1></div>
-    <button id="about-button" class="icon-button" aria-label="About What the Food" title="About">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v1"/></svg>
-    </button>
-    <label id="compact-sort" class="icon-button" title="Sort menus">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 20V4m-4 4 4-4 4 4m4-4v16m-4-4 4 4 4-4"/></svg>
-      <select id="compact-sort-order" aria-label="Sort menus">
-        <option value="location:asc">Location &#8593;</option><option value="location:desc">Location &#8595;</option>
-        <option value="vendor:asc">Vendor &#8593;</option><option value="vendor:desc">Vendor &#8595;</option>
-        <option value="category:asc">Category &#8593;</option><option value="category:desc">Category &#8595;</option>
-        <option value="name:asc">Item &#8593;</option><option value="name:desc">Item &#8595;</option>
-        <option value="price:asc">Price &#8593;</option><option value="price:desc">Price &#8595;</option>
-      </select>
-    </label>
-    <button id="locations-button" class="icon-button" aria-label="Locations" title="Locations">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M6 12h12M9 18h6"/></svg>
-    </button>
-    <button id="reload-button" class="icon-button" aria-label="Reload menu data" title="Reload menus.js (does not scrape)">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M20 12a8 8 0 1 0-2 5M20 7l-3-3"/></svg>
-    </button>
-  </header>
-  <div class="status-bar">
-    <span id="summary" role="status" aria-live="polite"></span>
-    <button id="data-status" aria-label="Menu data status and locations"></button>
-  </div>
-  <p id="data-warning" class="warning" hidden></p>
-  <main id="results" aria-label="Menu results" tabindex="-1">
-    <div id="empty" class="empty">
-      <h2 id="empty-title">Loading menu data</h2>
-      <p id="empty-message" class="muted">Reading menus.js beside this page.</p>
-      <button id="empty-locations" hidden>Choose locations</button>
-    </div>
-    <table id="menu-table" hidden aria-label="Matching menu items">
-      <thead><tr>
-        <th scope="col" data-field="location"><button>Location</button></th>
-        <th scope="col" data-field="vendor"><button>Vendor</button></th>
-        <th scope="col" data-field="category"><button>Category</button></th>
-        <th scope="col" data-field="name"><button>Item</button></th>
-        <th scope="col" data-field="price"><button>Price</button></th>
-      </tr></thead>
-      <tbody id="menu-rows"></tbody>
-    </table>
-    <button id="more" hidden>Show more results</button>
-  </main>
-  <footer>
-    <div class="search">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><path d="m15 15 6 6"/></svg>
-      <label class="sr-only" for="query">Search menus</label>
-      <input id="query" type="search" placeholder="Dish, vendor, cafe..." title='Use quotes for phrases: "Food hall 6" chicken' autocomplete="off" spellcheck="false">
-      <button id="clear-query" type="button" class="icon-button" aria-label="Clear search" title="Clear search" disabled>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="m9 9 6 6m0-6-6 6"/></svg>
-      </button>
-    </div>
-    <div class="sort-controls">
-      <label for="sort-field">Sort</label>
-      <select id="sort-field" aria-label="Sort menus by">
-        <option value="location">Location</option><option value="vendor">Vendor</option>
-        <option value="category">Category</option><option value="name">Item</option><option value="price">Price</option>
-      </select>
-      <button id="sort-direction" class="icon-button" aria-label="Sort ascending" title="Sort ascending"></button>
-    </div>
-  </footer>
+	<!-- What the Food - standalone menu snapshot browser. -->
+	<head>
+		<meta charset="utf-8" />
+		<meta
+			name="viewport"
+			content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+		/>
+		<meta name="color-scheme" content="light dark" />
+		<meta name="apple-mobile-web-app-title" content="What the Food" />
+		<title>What the Food - Start Menu</title>
+		<link rel="icon" type="image/svg+xml" href="WhatTheFood.svg" />
+		<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
+		<link rel="stylesheet" href="wtf.css" />
+	</head>
+	<body>
+		<div id="loading-screen" role="status" aria-label="Loading menu items">
+			<div class="loading-artwork" aria-hidden="true">
+				<img src="WhatTheFood.svg" alt="" width="1024" height="1024" />
+			</div>
+		</div>
+		<header class="app-header">
+			<div class="brand" aria-hidden="true">WTF</div>
+			<div class="titles">
+				<p class="eyebrow">What the Food</p>
+				<h1>Start Menu</h1>
+			</div>
+			<button
+				id="about-button"
+				class="icon-button"
+				aria-label="About What the Food"
+				title="About"
+			>
+				<svg viewBox="0 0 24 24" aria-hidden="true">
+					<circle cx="12" cy="12" r="9" />
+					<path d="M12 11v6m0-10v1" />
+				</svg>
+			</button>
+			<label id="compact-sort" class="icon-button" title="Sort menus">
+				<svg viewBox="0 0 24 24" aria-hidden="true">
+					<path d="M8 20V4m-4 4 4-4 4 4m4-4v16m-4-4 4 4 4-4" />
+				</svg>
+				<select id="compact-sort-order" aria-label="Sort menus">
+					<option value="location:asc">Location &#8593;</option>
+					<option value="location:desc">Location &#8595;</option>
+					<option value="vendor:asc">Vendor &#8593;</option>
+					<option value="vendor:desc">Vendor &#8595;</option>
+					<option value="category:asc">Category &#8593;</option>
+					<option value="category:desc">Category &#8595;</option>
+					<option value="name:asc">Item &#8593;</option>
+					<option value="name:desc">Item &#8595;</option>
+					<option value="price:asc">Price &#8593;</option>
+					<option value="price:desc">Price &#8595;</option>
+				</select>
+			</label>
+			<button
+				id="locations-button"
+				class="icon-button"
+				aria-label="Locations"
+				title="Locations"
+			>
+				<svg viewBox="0 0 24 24" aria-hidden="true">
+					<path d="M3 6h18M6 12h12M9 18h6" />
+				</svg>
+			</button>
+			<button
+				id="reload-button"
+				class="icon-button"
+				aria-label="Reload menu data"
+				title="Reload menus.js (does not scrape)"
+			>
+				<svg viewBox="0 0 24 24" aria-hidden="true">
+					<path d="M20 7v5h-5M20 12a8 8 0 1 0-2 5M20 7l-3-3" />
+				</svg>
+			</button>
+		</header>
+		<div class="status-bar">
+			<span id="summary" role="status" aria-live="polite"></span>
+			<button
+				id="data-status"
+				aria-label="Menu data status and locations"
+			></button>
+		</div>
+		<p id="data-warning" class="warning" hidden></p>
+		<main id="results" aria-label="Menu results" tabindex="-1">
+			<div id="empty" class="empty">
+				<h2 id="empty-title">Loading menu data</h2>
+				<p id="empty-message" class="muted">
+					Reading menus.js beside this page.
+				</p>
+				<button id="empty-locations" hidden>Choose locations</button>
+			</div>
+			<table id="menu-table" hidden aria-label="Matching menu items">
+				<thead>
+					<tr>
+						<th scope="col" data-field="location"><button>Location</button></th>
+						<th scope="col" data-field="vendor"><button>Vendor</button></th>
+						<th scope="col" data-field="category"><button>Category</button></th>
+						<th scope="col" data-field="name"><button>Item</button></th>
+						<th scope="col" data-field="price"><button>Price</button></th>
+					</tr>
+				</thead>
+				<tbody id="menu-rows"></tbody>
+			</table>
+			<button id="more" hidden>Show more results</button>
+		</main>
+		<footer>
+			<div class="search">
+				<svg viewBox="0 0 24 24" aria-hidden="true">
+					<circle cx="10" cy="10" r="6.5" />
+					<path d="m15 15 6 6" />
+				</svg>
+				<label class="sr-only" for="query">Search menus</label>
+				<input
+					id="query"
+					type="search"
+					placeholder="Dish, vendor, cafe..."
+					title='Use quotes for phrases: "Food hall 6" chicken'
+					autocomplete="off"
+					spellcheck="false"
+				/>
+				<button
+					id="clear-query"
+					type="button"
+					class="icon-button"
+					aria-label="Clear search"
+					title="Clear search"
+					disabled
+				>
+					<svg viewBox="0 0 24 24" aria-hidden="true">
+						<circle cx="12" cy="12" r="8" />
+						<path d="m9 9 6 6m0-6-6 6" />
+					</svg>
+				</button>
+			</div>
+			<div class="sort-controls">
+				<label for="sort-field">Sort</label>
+				<select id="sort-field" aria-label="Sort menus by">
+					<option value="location">Location</option>
+					<option value="vendor">Vendor</option>
+					<option value="category">Category</option>
+					<option value="name">Item</option>
+					<option value="price">Price</option>
+				</select>
+				<button
+					id="sort-direction"
+					class="icon-button"
+					aria-label="Sort ascending"
+					title="Sort ascending"
+				></button>
+			</div>
+		</footer>
 
-  <dialog id="locations-dialog" aria-labelledby="locations-title">
-    <div class="dialog-header"><h2 id="locations-title">Locations</h2><button data-close>Done</button></div>
-    <div class="dialog-body">
-      <p class="muted">Choose which locations to show.  This filters the saved menus; it does not fetch new data.</p>
-      <p id="preferences-warning" class="warning" hidden></p>
-      <p id="generated-at" class="muted"></p>
-      <div id="location-list"></div>
-    </div>
-  </dialog>
-  <dialog id="detail-dialog" aria-labelledby="detail-title">
-    <div class="dialog-header"><h2 id="detail-title"></h2><button data-close>Done</button></div>
-    <div class="dialog-body">
-      <p id="detail-price"></p>
-      <dl><dt>Location</dt><dd id="detail-location"></dd><dt>Vendor</dt><dd id="detail-vendor"></dd><dt>Category</dt><dd id="detail-category"></dd></dl>
-      <p id="detail-description"></p>
-      <p class="muted">Base menu price; customizations may cost extra.  Opening the website does not add anything to a cart.</p>
-      <p id="ordering-caption" class="muted"></p>
-      <div class="actions">
-        <a id="ordering-link" class="action primary" target="_blank" rel="noopener noreferrer"></a>
-        <a id="pickup-link" class="action" target="_blank" rel="noopener noreferrer">Choose Pickup Time &#8599;</a>
-      </div>
-    </div>
-  </dialog>
-  <dialog id="about-dialog" aria-labelledby="about-title">
-    <div class="dialog-header"><h2 id="about-title">What the Food</h2><button data-close>Done</button></div>
-    <div class="dialog-body">
-      <p>WTF is a common phrase when we realize that something isn't working as it should (or could).</p>
-      <p>Campus food services have separate websites, vendors move around, and menus change daily.  The lack of a unified search was a "What the Food?" moment for us.</p>
-      <p>This page searches a snapshot produced by the Rust scraper.  It never contacts the menu APIs.  To update the menus, run the scraper again, replace menus.js, and reload this page.</p>
-      <p>Search requires every word to match.  Use double quotes for a phrase within one field, such as "Food hall 6" chicken.  Matching ignores case and accents; results keep your chosen sort order.</p>
-      <p>Use the Locations button <button id="about-locations-button" type="button" class="inline-icon" aria-label="Locations" title="Locations"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M6 12h12M9 18h6"/></svg></button> to choose which locations to include in searches and results.  Your choices are stored locally in your browser.  Nothing is sent to the server.</p>
-      <p>Source code in the <a href="https://github.com/MichaelSinz/WhatTheFood">WhatTheFood</a> GitHub repository.</p>
-      <p class="muted">Dates use the America/Los_Angeles time zone.  Old menus are labeled as old, not presented as today's offerings.  Only location choices are saved in local storage, with session storage as a fallback.  Menus stay in menus.js; search and sorting stay in memory.</p>
-    </div>
-  </dialog>
-  <noscript><style>#loading-screen { display: none; }</style><p class="warning">JavaScript is required to search menus.</p></noscript>
-  <script src="menus.js"></script>
-  <script>
-    "use strict";
-    (() => {
-      const $ = id => document.getElementById(id);
-      const fields = ["location", "vendor", "category", "name", "price"];
-      const labels = { location: "Location", vendor: "Vendor", category: "Category", name: "Item", price: "Price" };
-      const storageKey = "what-the-food.locations.v1";
-      const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
-      const dayFormatter = new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit" });
-      const normalize = value => String(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-      const campusDay = () => {
-        const parts = Object.fromEntries(dayFormatter.formatToParts(new Date()).map(p => [p.type, p.value]));
-        return `${parts.year}-${parts.month}-${parts.day}`;
-      };
-      let data = null, matches = [], rendered = 0, selectedItem = null;
-      let preferences = { disabled: [], field: "location", ascending: true, query: "" };
-      let storageKind = "localStorage";
-      const moneyFormats = new Map();
-      function money(item) {
-        if (!moneyFormats.has(item.currency)) moneyFormats.set(item.currency, new Intl.NumberFormat(undefined, { style: "currency", currency: item.currency }));
-        return moneyFormats.get(item.currency).format(Number(item.price));
-      }
-      function storageWarning(message) {
-        $("preferences-warning").textContent = message;
-        $("preferences-warning").hidden = false;
-      }
-      function openStorage(kind) {
-        try {
-          const storage = window[kind];
-          storage.setItem(storageKey + ".probe", "1");
-          storage.removeItem(storageKey + ".probe");
-          storageKind = kind;
-          return storage;
-        } catch (error) {
-          console.warn(`${kind} is unavailable:`, error);
-          return null;
-        }
-      }
-      let locationStorage = openStorage("localStorage") || openStorage("sessionStorage");
-      if (!locationStorage) storageWarning("Location choices cannot be saved in this browser. Changes last only until this page is closed or reloaded.");
-      else if (storageKind === "sessionStorage") storageWarning("Local storage is unavailable. Location choices will be saved for this browser session only.");
-      try {
-        const saved = locationStorage && locationStorage.getItem(storageKey);
-        if (saved !== null) {
-          const disabled = JSON.parse(saved);
-          if (!Array.isArray(disabled) || !disabled.every(id => typeof id === "string")) {
-            throw new Error("Invalid saved location choices");
-          }
-          preferences.disabled = disabled;
-        }
-      } catch (error) {
-        storageWarning("Saved location choices could not be read. All locations are enabled for this session.");
-        console.warn("Unable to read location choices:", error);
-      }
-      function saveLocations() {
-        if (!locationStorage) return;
-        try { locationStorage.setItem(storageKey, JSON.stringify(preferences.disabled)); }
-        catch (error) {
-          console.warn("Unable to save location choices:", error);
-          locationStorage = storageKind === "localStorage" ? openStorage("sessionStorage") : null;
-          if (locationStorage) {
-            storageWarning("Local storage is unavailable. Location choices will be saved for this browser session only.");
-            saveLocations();
-          } else {
-            storageWarning("Location choices cannot be saved in this browser. Changes last only until this page is closed or reloaded.");
-          }
-        }
-      }
-      function orderingURL(item) {
-        const url = new URL(item.orderingURL);
-        if (url.protocol !== "https:" || !url.hostname.endsWith(".buy-ondemand.com") || url.username || url.password || url.port) {
-          throw new Error("Unsupported ordering URL");
-        }
-        return url;
-      }
-      function validate(value) {
-        if (!value || value.schemaVersion !== 1 || !/^\d{4}-\d{2}-\d{2}$/.test(value.campusDay)
-            || value.timeZone !== "America/Los_Angeles" || !Number.isFinite(Date.parse(value.generatedAt))
-            || typeof value.complete !== "boolean" || !Array.isArray(value.locations)) throw new Error("Unsupported menu data format");
-        const locationIDs = new Set();
-        for (const location of value.locations) {
-          if (!location || typeof location.id !== "string" || !location.id || locationIDs.has(location.id)
-              || typeof location.name !== "string" || !["ok", "error", "no_ordering_url"].includes(location.status)
-              || !Array.isArray(location.items) || !Array.isArray(location.notices) || !location.notices.every(n => typeof n === "string")
-              || (location.status === "error" && typeof location.error !== "string")
-              || (location.status !== "ok" && location.items.length)) throw new Error("Invalid location data");
-          locationIDs.add(location.id);
-          for (const item of location.items) {
-            if (!item || !["id", "location", "vendor", "menu", "category", "name", "description", "price", "currency", "orderingURL"]
-                .every(key => typeof item[key] === "string")
-                || !/^-?\d+(?:\.\d+)?$/.test(item.price) || !Number.isFinite(Number(item.price))
-                || !/^[A-Z]{3}$/.test(item.currency)) throw new Error("Invalid menu item");
-            orderingURL(item);
-            if (item.orderingCategoryPath != null && (!Array.isArray(item.orderingCategoryPath)
-                || item.orderingCategoryPath.length > 2
-                || !item.orderingCategoryPath.every(id => typeof id === "string" && id.length > 0))) {
-              throw new Error("Invalid ordering category path");
-            }
-            if (item.vendorOpeningWindow != null) {
-              const { start, end } = item.vendorOpeningWindow;
-              if (!Number.isFinite(Date.parse(start)) || !Number.isFinite(Date.parse(end)) || Date.parse(end) <= Date.parse(start)) {
-                throw new Error("Invalid vendor hours");
-              }
-            }
-          }
-        }
-        if (value.complete !== !value.locations.some(l => l.status === "error")) throw new Error("Inconsistent menu completeness");
-        return value;
-      }
-      function showDialog(id) { $(id).showModal(); }
-      for (const button of document.querySelectorAll("[data-close]")) button.addEventListener("click", () => button.closest("dialog").close());
-      for (const dialog of document.querySelectorAll("dialog")) {
-        dialog.addEventListener("click", event => { if (event.target === dialog) {
-          const box = dialog.getBoundingClientRect();
-          if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) dialog.close();
-        } });
-      }
-      $("about-button").onclick = () => showDialog("about-dialog");
-      $("about-locations-button").onclick = () => {
-        $("about-dialog").close();
-        showDialog("locations-dialog");
-      };
-      $("locations-button").onclick = $("data-status").onclick = $("empty-locations").onclick = () => showDialog("locations-dialog");
-      $("reload-button").onclick = () => window.location.reload();
-      $("detail-dialog").addEventListener("close", () => { selectedItem = null; });
-
-      function renderLocations() {
-        const fragment = document.createDocumentFragment();
-        for (const location of data.locations) {
-          const row = document.createElement("div");
-          row.className = "location-row";
-          const label = document.createElement(location.status === "no_ordering_url" ? "div" : "label");
-          label.className = "location-label";
-          const name = document.createElement("span");
-          name.textContent = location.name;
-          label.append(name);
-          const disabled = preferences.disabled.includes(location.id);
-          if (location.status !== "no_ordering_url") {
-            const toggle = document.createElement("input");
-            toggle.type = "checkbox"; toggle.checked = !disabled;
-            toggle.setAttribute("role", "switch");
-            toggle.addEventListener("change", () => {
-              preferences.disabled = preferences.disabled.filter(id => id !== location.id);
-              if (!toggle.checked) preferences.disabled.push(location.id);
-              saveLocations(); render();
-            });
-            label.append(toggle);
-          }
-          const status = document.createElement("p");
-          status.className = `location-status${location.status === "error" ? " failed" : ""}`;
-          status.textContent = location.status === "no_ordering_url" ? "No ordering link in the directory."
-            : location.status === "error" ? `Fetch failed: ${location.error}`
-            : `${location.items.length.toLocaleString()} saved items${location.notices.length ? `\n${location.notices.join("\n")}` : ""}`;
-          row.append(label, status); fragment.append(row);
-        }
-        $("location-list").replaceChildren(fragment);
-        $("generated-at").textContent = `Menus for ${data.campusDay}. Generated ${new Date(data.generatedAt).toLocaleString()}.`;
-      }
-      function updateSortControls() {
-        $("sort-field").value = preferences.field;
-        $("compact-sort-order").value = `${preferences.field}:${preferences.ascending ? "asc" : "desc"}`;
-        const direction = preferences.ascending ? "ascending" : "descending";
-        $("sort-direction").textContent = preferences.ascending ? "\u2191" : "\u2193";
-        $("sort-direction").setAttribute("aria-label", `Sort ${direction}; activate to reverse`);
-        $("sort-direction").title = `Sort ${direction}`;
-        for (const header of document.querySelectorAll("th[data-field]")) {
-          const active = header.dataset.field === preferences.field;
-          header.setAttribute("aria-sort", active ? direction : "none");
-          header.firstElementChild.textContent = labels[header.dataset.field] + (active ? (preferences.ascending ? " \u2191" : " \u2193") : "");
-        }
-      }
-      function compare(a, b) {
-        const field = preferences.field;
-        const order = field === "price" ? Number(a.price) - Number(b.price) : collator.compare(a[field], b[field]);
-        if (order) return preferences.ascending ? order : -order;
-        for (const key of ["location", "vendor", "name", "category"]) {
-          if (key !== field) {
-            const tie = collator.compare(a[key], b[key]);
-            if (tie) return tie;
-          }
-        }
-        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-      }
-      function updateStatus(enabled, total) {
-        $("summary").textContent = `${matches.length.toLocaleString()} ${matches.length === 1 ? "match" : "matches"} / ${total.toLocaleString()} items`;
-        const failed = enabled.filter(l => l.status === "error").length;
-        const notices = enabled.reduce((count, l) => count + l.notices.length, 0);
-        const stale = data.campusDay !== campusDay();
-        $("data-status").textContent = `${data.campusDay} \u00b7 ${enabled.length} locations enabled${failed ? ` \u00b7 ${failed} failed` : ""}${notices ? ` \u00b7 ${notices} notices` : ""}`;
-        $("locations-button").title = `${enabled.length} locations enabled`;
-        const warnings = [];
-        if (stale) warnings.push(`These menus are for ${data.campusDay}, not today (${campusDay()}). Run the scraper to get today's menus.`);
-        if (!data.complete) {
-          const allFailed = data.locations.filter(l => l.status === "error").length;
-          warnings.push(`Partial snapshot: ${allFailed} ${allFailed === 1 ? "location failed" : "locations failed"} to load. See Locations for details.`);
-        }
-        $("data-warning").textContent = warnings.join("  ");
-        $("data-warning").hidden = warnings.length === 0;
-      }
-      function appendRows() {
-        const end = Math.min(rendered + 100, matches.length);
-        const fragment = document.createDocumentFragment();
-        for (let index = rendered; index < end; index++) {
-          const item = matches[index], row = document.createElement("tr");
-          row.dataset.index = String(index);
-          for (const key of fields) {
-            const cell = document.createElement("td");
-            if (key === "name") {
-              const button = document.createElement("button");
-              button.className = "item-button"; button.textContent = item.name;
-              cell.append(button);
-            } else {
-              cell.textContent = key === "price" ? money(item) : item[key];
-            }
-            if (key === "price") cell.className = "price";
-            row.append(cell);
-          }
-          fragment.append(row);
-        }
-        rendered = end; $("menu-rows").append(fragment);
-        $("more").hidden = rendered >= matches.length;
-        $("more").textContent = `Show more (${rendered.toLocaleString()} of ${matches.length.toLocaleString()})`;
-      }
-      function render() {
-        if (!data) return;
-        const enabled = data.locations.filter(l => l.status !== "no_ordering_url" && !preferences.disabled.includes(l.id));
-        const items = enabled.flatMap(l => l.items);
-        const terms = Array.from(preferences.query.replace(/[\u201c\u201d]/g, '"').matchAll(/"([^"]*)"?|([^\s"]+)/g),
-          match => normalize(match[1] ?? match[2]).replace(/\s+/g, " ").trim()).filter(Boolean);
-        matches = items.filter(item => terms.every(term => item.searchFields.some(field => field.includes(term)))).sort(compare);
-        updateSortControls(); updateStatus(enabled, items.length);
-        $("results").scrollTop = 0; rendered = 0; $("menu-rows").replaceChildren();
-        $("menu-table").hidden = !matches.length; $("empty").hidden = !!matches.length;
-        $("empty-locations").hidden = false;
-        if (!matches.length) {
-          $("empty-title").textContent = !enabled.length ? "No locations enabled" : preferences.query.trim() ? "No matching items" : "No menus available";
-          $("empty-message").textContent = !enabled.length ? "Enable locations to browse their saved menus."
-            : preferences.query.trim() ? "Try another search or enable more locations."
-            : "Check Locations for closed sites, unavailable menus, or fetch errors.";
-        }
-        appendRows();
-      }
-      $("query").value = preferences.query;
-      $("clear-query").disabled = !$("query").value;
-      $("query").addEventListener("input", () => {
-        $("clear-query").disabled = !$("query").value;
-        preferences.query = $("query").value; render();
-      });
-      $("clear-query").onclick = () => {
-        $("query").value = "";
-        $("query").dispatchEvent(new Event("input", { bubbles: true }));
-        $("query").focus({ preventScroll: true });
-      };
-      $("sort-field").addEventListener("change", () => {
-        preferences.field = $("sort-field").value; render();
-      });
-      $("compact-sort-order").addEventListener("change", () => {
-        const [field, direction] = $("compact-sort-order").value.split(":");
-        preferences.field = field; preferences.ascending = direction === "asc"; render();
-      });
-      $("sort-direction").onclick = () => {
-        preferences.ascending = !preferences.ascending; render();
-      };
-      for (const header of document.querySelectorAll("th[data-field]")) {
-        header.firstElementChild.onclick = () => {
-          if (preferences.field === header.dataset.field) preferences.ascending = !preferences.ascending;
-          else { preferences.field = header.dataset.field; preferences.ascending = true; }
-          render();
-        };
-      }
-      $("more").onclick = appendRows;
-      if ("IntersectionObserver" in window) {
-        new IntersectionObserver(entries => {
-          if (entries.some(entry => entry.isIntersecting) && !$("more").hidden) appendRows();
-        }, { root: $("results"), rootMargin: "200px" }).observe($("more"));
-      }
-      function updateOrdering() {
-        if (!selectedItem) return;
-        const item = selectedItem, url = orderingURL(item), parts = item.id.split("::");
-        const window = item.vendorOpeningWindow;
-        const instant = Date.now();
-        const isOpen = data.campusDay === campusDay() && window && Date.parse(window.start) <= instant && instant < Date.parse(window.end);
-        const canLink = parts.length >= 7 && parts[0] === url.hostname && parts.slice(1, 4).every(Boolean);
-        const pickup = new URL(url.origin + "/");
-        if (canLink) pickup.searchParams.set("displayProfileId", parts[2]);
-        else pickup.href = url.href;
-        const direct = new URL(pickup);
-        if (isOpen && canLink) {
-          direct.pathname = "/menu/" + [...parts.slice(1, 4), ...(item.orderingCategoryPath || [])].map(encodeURIComponent).join("/");
-          direct.search = ""; direct.hash = "";
-        }
-        const opensVendor = !!(isOpen && canLink);
-        $("ordering-link").href = opensVendor ? direct.href : pickup.href;
-        $("ordering-link").textContent = (opensVendor ? "Open Ordering Website" : "Choose Pickup Time") + " \u2197";
-        $("pickup-link").href = pickup.href; $("pickup-link").hidden = !opensVendor;
-        $("ordering-caption").textContent = opensVendor ? `Open ${item.vendor}'s menu, or choose another pickup time.`
-          : `Choose a pickup time on the website, then select ${item.vendor}. Menu availability may have changed since this snapshot.`;
-      }
-      $("menu-rows").addEventListener("click", event => {
-        const row = event.target.closest("tr[data-index]");
-        if (!row) return;
-        selectedItem = matches[Number(row.dataset.index)];
-        for (const key of ["location", "vendor", "category", "description"]) $("detail-" + key).textContent = selectedItem[key];
-        $("detail-title").textContent = selectedItem.name; $("detail-price").textContent = money(selectedItem);
-        updateOrdering(); showDialog("detail-dialog");
-      });
-      // Re-evaluate the destination when clicked, not just when the detail view opened.
-      $("ordering-link").addEventListener("click", updateOrdering);
-      let lastDay = campusDay();
-      function checkClock() {
-        if (data && lastDay !== campusDay()) {
-          lastDay = campusDay();
-          const enabled = data.locations.filter(l => l.status !== "no_ordering_url" && !preferences.disabled.includes(l.id));
-          updateStatus(enabled, enabled.reduce((total, l) => total + l.items.length, 0));
-        }
-        updateOrdering();
-      }
-      setInterval(checkClock, 1000);
-      document.addEventListener("visibilitychange", () => { if (!document.hidden) checkClock(); });
-      try {
-        if (typeof menuData === "undefined") throw new Error("menus.js is missing, blocked, or invalid");
-        data = validate(menuData);
-        for (const location of data.locations) for (const item of location.items) {
-          item.searchFields = [item.location, item.vendor, item.menu, item.category, item.name, item.description, item.price, item.currency]
-            .map(field => normalize(field).replace(/\s+/g, " ").trim());
-        }
-        renderLocations(); render();
-      } catch (error) {
-        data = null;
-        $("summary").textContent = "Menu data unavailable";
-        $("data-status").textContent = "About and settings remain available";
-        $("empty-title").textContent = "Unable to load menus";
-        $("empty-message").textContent = `${error.message}. Place the Rust-generated menus.js beside this HTML file, then reload.`;
-        $("empty").hidden = false; $("menu-table").hidden = true; $("more").hidden = true;
-        $("generated-at").textContent = "No valid menu snapshot is loaded.";
-        console.error("Unable to load menu data:", error);
-      }
-      updateSortControls();
-      $("loading-screen").hidden = true;
-    })();
-  </script>
-</body>
+		<dialog id="locations-dialog" aria-labelledby="locations-title">
+			<div class="dialog-header">
+				<h2 id="locations-title">Locations</h2>
+				<button data-close>Done</button>
+			</div>
+			<div class="dialog-body">
+				<p class="muted">
+					Choose which locations to show. This filters the saved menus; it does
+					not fetch new data.
+				</p>
+				<p id="preferences-warning" class="warning" hidden></p>
+				<p id="generated-at" class="muted"></p>
+				<div id="location-list"></div>
+			</div>
+		</dialog>
+		<dialog id="detail-dialog" aria-labelledby="detail-title">
+			<div class="dialog-header">
+				<h2 id="detail-title"></h2>
+				<button data-close>Done</button>
+			</div>
+			<div class="dialog-body">
+				<p id="detail-price"></p>
+				<dl>
+					<dt>Location</dt>
+					<dd id="detail-location"></dd>
+					<dt>Vendor</dt>
+					<dd id="detail-vendor"></dd>
+					<dt>Category</dt>
+					<dd id="detail-category"></dd>
+				</dl>
+				<p id="detail-description"></p>
+				<p class="muted">
+					Base menu price; customizations may cost extra. Opening the website
+					does not add anything to a cart.
+				</p>
+				<p id="ordering-caption" class="muted"></p>
+				<div class="actions">
+					<a
+						id="ordering-link"
+						class="action primary"
+						target="_blank"
+						rel="noopener noreferrer"
+					></a>
+					<a
+						id="pickup-link"
+						class="action"
+						target="_blank"
+						rel="noopener noreferrer"
+						>Choose Pickup Time &#8599;</a
+					>
+				</div>
+			</div>
+		</dialog>
+		<dialog id="about-dialog" aria-labelledby="about-title">
+			<div class="dialog-header">
+				<h2 id="about-title">What the Food</h2>
+				<button data-close>Done</button>
+			</div>
+			<div class="dialog-body">
+				<p>
+					WTF is a common phrase when we realize that something isn't working as
+					it should (or could).
+				</p>
+				<p>
+					Campus food services have separate websites, vendors move around, and
+					menus change daily. The lack of a unified search was a "What the
+					Food?" moment for us.
+				</p>
+				<p>
+					This page searches a snapshot produced by the Rust scraper. It never
+					contacts the menu APIs. To update the menus, run the scraper again,
+					replace menus.js, and reload this page.
+				</p>
+				<p>
+					Search requires every word to match. Use double quotes for a phrase
+					within one field, such as "Food hall 6" chicken. Matching ignores case
+					and accents; results keep your chosen sort order.
+				</p>
+				<p>
+					Use the Locations button
+					<button
+						id="about-locations-button"
+						type="button"
+						class="inline-icon"
+						aria-label="Locations"
+						title="Locations"
+					>
+						<svg viewBox="0 0 24 24" aria-hidden="true">
+							<path d="M3 6h18M6 12h12M9 18h6" />
+						</svg>
+					</button>
+					to choose which locations to include in searches and results. Your
+					choices are stored locally in your browser. Nothing is sent to the
+					server.
+				</p>
+				<p>
+					Source code in the
+					<a href="https://github.com/MichaelSinz/WhatTheFood">WhatTheFood</a>
+					GitHub repository.
+				</p>
+				<p class="muted">
+					Dates use the America/Los_Angeles time zone. Old menus are labeled as
+					old, not presented as today's offerings. Only location choices are
+					saved in local storage, with session storage as a fallback. Menus stay
+					in menus.js; search and sorting stay in memory.
+				</p>
+			</div>
+		</dialog>
+		<noscript
+			><style>
+				#loading-screen {
+					display: none;
+				}
+			</style>
+			<p class="warning">JavaScript is required to search menus.</p></noscript
+		>
+		<script src="menus.js"></script>
+		<script src="wtf.js"></script>
+	</body>
 </html>

@@ -4,16 +4,20 @@ This repository contains the standalone Rust scraper and web app.  Keep implemen
 
 ## Deployment and use
 
-Rust sources live in `rust/`, the HTML source in `site/index.html`, and browser tests in `tests/web.test.cjs`.  The root Makefile generates the deployable `web/` directory, which contains exactly `index.html` and `menus.js`.  Do not put tests, documentation, ignore files, or development dependencies there.  Root `.gitignore` covers generated files and build/test products.
+Rust sources live in `rust/`, website sources in `site/index.html`, `site/wtf.css`, and `site/wtf.js`, and browser tests in `tests/web.test.cjs`.  The root Makefile assembles the deployable `web/` directory, which contains exactly `index.html`, `wtf.css`, `wtf.js`, `menus.js`, `WhatTheFood.svg`, and `apple-touch-icon.png`.  Do not put tests, documentation, ignore files, or development dependencies there.  Root `.gitignore` covers generated/copied files and build/test products.
 
-The HTML contains its CSS, application JavaScript, and the original `WhatTheFood.svg` embedded at build time with portable awk.  It uses an ordinary, non-module script tag to load `menus.js`.  It works directly from disk as well as on a static web host; it makes no menu API requests and requires no application server, CDN, or external application runtime.  The full, uncropped SVG is scaled and centered over the page until menu validation, indexing, and the initial rendering of results are complete.  Missing or invalid menu data dismisses the splash and shows the normal error screen; disabling JavaScript exposes a helpful message rather than leaving the splash covering the page.
+The HTML loads `wtf.css`, the original `WhatTheFood.svg` as an image, and ordinary, non-module scripts in order: `menus.js` followed by `wtf.js`.  A small inline style inside `noscript` hides the loading screen when JavaScript is disabled; application styles live in `wtf.css`.  The Makefile copies the website sources and root SVG without a bundler or HTML preprocessing.  It works directly from disk as well as on a static web host; it makes no menu API requests and requires no application server, CDN, or external application runtime.  The full, uncropped SVG is scaled and centered over the page until menu validation, indexing, and the initial rendering of results are complete.  Missing or invalid menu data dismisses the splash and shows the normal error screen; disabling JavaScript exposes a helpful message rather than leaving the splash covering the page.
+
+Website sources use tab indentation, expanded CSS declarations and JavaScript blocks, and concise file headers.  Use section banners for major JavaScript responsibilities and document non-obvious behavior rather than commenting every statement.  Keep color themes in `wtf.css`: `color-scheme` and `prefers-color-scheme` select light/dark mode automatically, without JavaScript or a separate color stylesheet.
+
+The SVG is also the browser favicon.  iPhone home-screen shortcuts use a relative `apple-touch-icon` link to the checked-in 180×180 PNG derivative in `site/apple-touch-icon.png`; `apple-mobile-web-app-title` supplies the shortcut name.  Regenerate the PNG after SVG changes with `rsvg-convert --width 180 --height 180 --output site/apple-touch-icon.png WhatTheFood.svg`.  Normal builds only copy it, so they require no image-conversion tools.  No manifest, service worker, or standalone-mode behavior is added.
 
 Build and run from the repository root:
 
 ```sh
 make help
 make web
-# Build the scraper with tests, or regenerate HTML without scraping:
+# Build the scraper with tests, or copy website assets without scraping:
 make food-finder
 make html
 # No --output: emit only the JavaScript data to stdout.
@@ -60,6 +64,8 @@ The versioned data envelope includes the campus date, generation timestamp, comp
 
 The UI provides a search field in the footer, a responsive list/table layout, natural and numeric sorting, location switches, details, and time-aware browser ordering handoff.  It renders menu text as text rather than HTML and does not request per-item images.  Results are sorted and filtered over the full snapshot and inserted in batches while scrolling.  Search, sorting, and detail navigation do not contact the network.
 
+After loading, the results background shows the full, centered SVG beneath a 92%-opaque theme-colored overlay.  The table is transparent so the image is only a faint watermark behind fully opaque text; headers, controls, dialogs, and row-hover highlights retain their normal solid backgrounds.  CSS alone handles the watermark, scrolling, and light/dark colors.
+
 Search uses AND across all words and double-quoted phrases, ignoring case and accents.  Each phrase must occur within one field, so `"Food hall 6" chicken` requires that phrase and the word chicken without matching Food Hall 4 merely because its price contains a 6.  Straight and smart double quotes are accepted; repeated whitespace is normalized.  An unfinished opening quote treats the remaining text as a phrase for incremental searching, and empty quotes are ignored.  No fuzzy matching or relevance ranking is added; the chosen column sort remains authoritative.
 
 The search box has a persistent circled-X clear button at its right edge.  It stays visible but dimmed and disabled when empty, avoiding layout shifts while typing.  Clearing immediately restores the unfiltered results and returns focus to the search input.
@@ -76,7 +82,7 @@ The browser restrictions were checked on Food Hall 6: the API login did not gran
 
 ## GitHub Pages deployment
 
-The workflow in `.github/workflows/pages.yml` runs `make quick-web` on `ubuntu-latest` and publishes only `web/` through GitHub Pages.  This target builds the HTML, runs the Rust unit/CLI tests, and reuses the native debug scraper built and exercised by those tests to fetch menus.  It skips the separate release build because the scraper binary is not deployed; normal `make web` builds still use release mode.  It starts at 7:17 AM in `America/Los_Angeles` every Monday through Friday, automatically adjusting for daylight saving time.  GitHub may delay scheduled runs, and build time adds to the publication delay.  The workflow also supports manual runs through **Actions → Publish GitHub Pages → Run workflow**.
+The workflow in `.github/workflows/pages.yml` runs `make quick-web` on `ubuntu-latest` and publishes only `web/` through GitHub Pages.  This target copies the website assets, runs the Rust unit/CLI tests, and reuses the native debug scraper built and exercised by those tests to fetch menus.  It skips the separate release build because the scraper binary is not deployed; normal `make web` builds still use release mode.  It starts at 7:17 AM in `America/Los_Angeles` every Monday through Friday, automatically adjusting for daylight saving time.  GitHub may delay scheduled runs, and build time adds to the publication delay.  The workflow also supports manual runs through **Actions → Publish GitHub Pages → Run workflow**.
 
 Enable deployment by selecting **GitHub Actions** under **Settings → Pages → Build and deployment → Source** and merging the workflow into the default branch.  Each successful deployment replaces the previous site at `https://MichaelSinz.github.io/WhatTheFood/`.  Build failures, fatal scraper errors, or a majority of linked locations failing prevent deployment, leaving the previous site unchanged; failures affecting at most half of the linked locations warn and allow deployment of a clearly marked partial snapshot.  Generated files are uploaded as a deployment artifact, not committed to the repository.
 
@@ -95,6 +101,6 @@ make test-web
 FOOD_FINDER_WEB_DATA="$PWD/web/menus.js" make test-web
 ```
 
-Every Makefile target that builds the Rust executable first runs its unit/CLI tests.  Browser tests are optional, use the root `package.json`/lockfile, and keep installed engines and fixtures under `.tmp`.  The default tests use synthetic menus.  Real-data browser checks and replay of separately supplied API captures (`FOOD_FINDER_REPLAY`) are opt-in.  Desktop browser emulation is not a substitute for checking actual phone keyboards.
+Every Makefile target that builds the Rust executable first runs its unit/CLI tests.  Browser tests are optional, use the root `package.json`/lockfile, and keep installed engines and fixtures under `.tmp`.  `make setup-test` requires working Node.js/npm to start; when Node.js is older than 22, it installs Node.js 24 and npm locally under `.tmp/node-runtime`.  The Makefile prepends that local runtime's bin directory to PATH for subsequent commands, without changing system tools.  The default tests use synthetic menus.  Real-data browser checks and replay of separately supplied API captures (`FOOD_FINDER_REPLAY`) are opt-in.  Desktop browser emulation is not a substitute for checking actual phone keyboards.
 
-Commit source, lockfiles, documentation, and the SVG; do not commit daily menus or generated HTML.  Keep dependencies and build commands portable between Linux and macOS.
+Commit source, lockfiles, documentation, and the SVG; do not commit daily menus or copied website assets under `web/`.  Keep dependencies and build commands portable between Linux and macOS.

@@ -22,21 +22,27 @@ Dates use the America/Los_Angeles time zone.  Old menus are labeled as old, not 
 
 ## Build and deploy
 
-On Linux or macOS, install a current Rust toolchain with Cargo (supporting edition 2024), a C compiler/linker, `make`, and `awk`.  Normal builds do **not** need Node.js, npm, or Playwright.  Fetching menus needs an internet connection.
+On Linux or macOS, install a current Rust toolchain with Cargo (supporting edition 2024), a C compiler/linker, and `make`.  Normal builds do **not** need Node.js, npm, or Playwright.  Fetching menus needs an internet connection.
 
 ```sh
 make help
 make web
 ```
 
-`make web` runs the Rust unit/CLI tests, builds the release scraper, embeds the SVG into the HTML, and fetches fresh menu data.  Copy the **contents of `web/`** to your static website:
+`make web` runs the Rust unit/CLI tests, builds the release scraper, copies the website assets, and fetches fresh menu data.  Copy the **contents of `web/`** to your static website:
 
 ```text
 index.html
+wtf.css
+wtf.js
 menus.js
+WhatTheFood.svg
+apple-touch-icon.png
 ```
 
-There are no tests, documentation, build tools, or dependencies in that directory.  The icon, CSS, and application JavaScript are embedded in `index.html`.  The full icon appears centered while menus load and disappears when the initial results or an error are ready.  You can also open `web/index.html` directly from disk without a server.
+There are no tests, documentation, build tools, or development dependencies in that directory.  The HTML loads the stylesheet, application JavaScript, menu data, and icons from adjacent files.  Keep all six files together.  The full icon appears centered while menus load and disappears when the initial results or an error are ready.  You can also open `web/index.html` directly from disk without a server.
+
+On iPhone, Safari's **Share → Add to Home Screen** uses the PNG icon generated from `WhatTheFood.svg`.  The SVG also serves as the browser favicon.  If an existing home-screen shortcut still shows the old icon after deployment, remove it and add it again.
 
 Configure your web server to revalidate `menus.js` or give it a short cache lifetime so daily updates are visible.  Generated website files are ignored by git; a fresh checkout needs `make web` before deployment.
 
@@ -77,28 +83,36 @@ The binary is written to `rust/target/<target>/release/food-finder`.  Host-side 
 
 ## Development and optional browser tests
 
-Edit `site/index.html`, not the generated `web/index.html`.  `WhatTheFood.svg` is the icon source used by both this README and the generated page.
+Edit `site/index.html`, `site/wtf.css`, and `site/wtf.js`, not their copies in `web/`.  The root `WhatTheFood.svg` is the icon source used by both this README and the website.
+
+The checked-in `site/apple-touch-icon.png` is a 180×180 derivative for iPhone home-screen shortcuts.  After changing the SVG, regenerate it with librsvg's `rsvg-convert` (needed only for this step), then run `make html`:
+
+```sh
+rsvg-convert --width 180 --height 180 --output site/apple-touch-icon.png WhatTheFood.svg
+```
 
 | Target | Purpose |
 | --- | --- |
-| `make html` | Build just the HTML; no scraping, Rust build, or Node.js |
+| `make html` | Copy HTML, CSS, JavaScript, and icons; no scraping, Rust build, or Node.js |
 | `make food-finder` | Run Rust tests and build the release scraper |
 | `make menus` | Run Rust tests, build the scraper, and fetch fresh menus |
 | `make test-rust` | Run offline Rust unit and CLI tests |
 | `make check` | Run Rust tests, formatting checks, and Clippy |
-| `make setup-test` | Install optional Playwright tooling and Chromium/WebKit engines |
+| `make setup-test` | Set up an optional local runtime, Playwright tooling, and Chromium/WebKit engines |
 | `make test-web` | Build the HTML and run browser tests |
 | `make test` | Run both Rust and browser tests |
-| `make clean` | Remove Rust build products and generated HTML; retain menu data |
+| `make clean` | Remove Rust build products and copied site assets; retain menu data |
 
-For browser testing only, install Node.js 22+ and npm, then:
+For browser testing only, start with a working Node.js/npm installation, then:
 
 ```sh
 make setup-test
 make test-web
 ```
 
-On Linux, Playwright may also require system libraries; its `node node_modules/playwright/cli.js install-deps chromium webkit` command installs the supported dependencies and may need administrator privileges.  Browser engines are stored under `.tmp/playwright`.  This setup is never invoked by a normal build.
+If Node.js is older than 22, `make setup-test` automatically installs Node.js 24 and npm locally under `.tmp/node-runtime`, without changing the system installation.  Subsequent Makefile commands automatically use that local runtime, so no PATH changes are needed.
+
+On Linux, Playwright may also require system libraries; its `node node_modules/playwright/cli.js install-deps chromium webkit` command installs the supported dependencies and may need administrator privileges.  With the local runtime, prefix that command with `.tmp/node-runtime/node_modules/.bin/` so it uses the same Node.js.  Browser engines are stored under `.tmp/playwright`.  This setup is never invoked by a normal build.
 
 Browser tests run headless Chromium and WebKit against synthetic menus, including direct-file loading, static hosting, phrase search, sorting, location preferences, and the loading screen.  They emulate phone layouts, not an actual phone's software keyboard.
 

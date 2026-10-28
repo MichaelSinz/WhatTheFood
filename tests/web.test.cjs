@@ -38,27 +38,38 @@ function snapshot(day = "2026-10-27", partial = false) {
 async function site(data) {
   await fs.mkdir(path.join(root, ".tmp"), { recursive: true });
   const directory = await fs.mkdtemp(path.join(root, ".tmp", "web-test-"));
-  await fs.copyFile(path.join(root, "web", "index.html"), path.join(directory, "index.html"));
+  await Promise.all(["index.html", "wtf.css", "wtf.js", "WhatTheFood.svg", "apple-touch-icon.png"].map(file =>
+    fs.copyFile(path.join(root, "web", file), path.join(directory, file))));
   if (data) await fs.writeFile(path.join(directory, "menus.js"), `const menuData = ${JSON.stringify(data)};\n`);
   return { directory, url: pathToFileURL(path.join(directory, "index.html")).href };
+}
+
+async function staticServer(fixture, menusReady = Promise.resolve()) {
+  const assets = new Map(await Promise.all([
+    ["/", "index.html", "text/html"],
+    ["/wtf.css", "wtf.css", "text/css"],
+    ["/wtf.js", "wtf.js", "text/javascript"],
+    ["/WhatTheFood.svg", "WhatTheFood.svg", "image/svg+xml"],
+    ["/apple-touch-icon.png", "apple-touch-icon.png", "image/png"],
+    ["/menus.js", "menus.js", "text/javascript"],
+  ].map(async ([route, file, type]) =>
+    [route, { body: await fs.readFile(path.join(fixture.directory, file)), type }])));
+  const server = http.createServer(async (request, response) => {
+    const asset = assets.get(request.url);
+    if (!asset) { response.writeHead(404); response.end(); return; }
+    if (request.url === "/menus.js") await menusReady;
+    response.writeHead(200, { "Content-Type": asset.type }); response.end(asset.body);
+  });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  return server;
 }
 
 for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]]) {
   test(`${name}: centered full icon stays visible until menu data loads`, async () => {
     const fixture = await site(snapshot());
-    const html = await fs.readFile(path.join(fixture.directory, "index.html"));
-    const menus = await fs.readFile(path.join(fixture.directory, "menus.js"));
     let releaseMenus;
     const ready = new Promise(resolve => { releaseMenus = resolve; });
-    const server = http.createServer(async (request, response) => {
-      if (request.url === "/menus.js") {
-        await ready;
-        response.writeHead(200, { "Content-Type": "text/javascript" }); response.end(menus);
-      } else if (request.url === "/") {
-        response.writeHead(200, { "Content-Type": "text/html" }); response.end(html);
-      } else { response.writeHead(404); response.end(); }
-    });
-    await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+    const server = await staticServer(fixture, ready);
     const browser = await engine.launch({
       headless: true,
       ...(name === "webkit" && process.env.PLAYWRIGHT_WEBKIT_EXECUTABLE
@@ -67,10 +78,14 @@ for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]]) {
     try {
       const page = await browser.newPage({ viewport: { width: 375, height: 667 } });
       await page.goto(`http://127.0.0.1:${server.address().port}/`, { waitUntil: "commit" });
-      await page.locator("#loading-screen svg").waitFor({ state: "visible" });
+      await page.locator("#loading-screen img").waitFor({ state: "visible" });
+      await page.waitForFunction(() => {
+        const image = document.querySelector("#loading-screen img");
+        return image.complete && image.naturalWidth > 0;
+      });
       for (const viewport of [{ width: 375, height: 667 }, { width: 1200, height: 800 }]) {
         await page.setViewportSize(viewport);
-        const artwork = await page.locator("#loading-screen svg").boundingBox();
+        const artwork = await page.locator("#loading-screen img").boundingBox();
         assert(Math.abs(artwork.width - artwork.height) < 1, "The complete square icon is not stretched");
         assert(Math.abs(artwork.x + artwork.width / 2 - viewport.width / 2) < 1);
         assert(Math.abs(artwork.y + artwork.height / 2 - viewport.height / 2) < 1);
@@ -81,10 +96,27 @@ for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]]) {
       await page.waitForLoadState("load");
       assert.equal(await page.locator("#loading-screen").isVisible(), false);
       assert.match(await page.locator("#summary").innerText(), /208 matches/);
+      for (const viewport of [{ width: 375, height: 667 }, { width: 1200, height: 800 }]) {
+        await page.setViewportSize(viewport);
+        for (const colorScheme of ["light", "dark"]) {
+          await page.emulateMedia({ colorScheme });
+          const results = page.locator("#results");
+          const watermark = await results.screenshot();
+          await results.evaluate(element => { element.style.backgroundImage = "none"; });
+          const plain = await results.screenshot();
+          assert(!watermark.equals(plain), `Watermark remains visible behind ${colorScheme} menu rows at ${viewport.width}px`);
+          await results.evaluate(element => { element.style.removeProperty("background-image"); });
+        }
+      }
       const noScript = await browser.newPage({ javaScriptEnabled: false });
       await noScript.goto(`http://127.0.0.1:${server.address().port}/`);
       assert.equal(await noScript.locator("#loading-screen").isVisible(), false);
       assert.equal(await noScript.locator("noscript p").isVisible(), true);
+      await noScript.emulateMedia({ colorScheme: "light" });
+      const lightBackground = await noScript.locator("body").evaluate(element => getComputedStyle(element).backgroundColor);
+      await noScript.emulateMedia({ colorScheme: "dark" });
+      const darkBackground = await noScript.locator("body").evaluate(element => getComputedStyle(element).backgroundColor);
+      assert.notEqual(darkBackground, lightBackground, "Color themes follow the browser without JavaScript");
     } finally {
       releaseMenus();
       await browser.close();
@@ -149,6 +181,13 @@ for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]]) {
       page.on("request", request => requests.push(request.url()));
       await page.clock.install({ time: new Date("2026-10-27T19:00:00Z") });
       await page.goto(fixture.url);
+      const iconSize = await page.locator('link[rel="apple-touch-icon"]').evaluate(async link => {
+        const image = new Image();
+        image.src = link.href;
+        await image.decode();
+        return [image.naturalWidth, image.naturalHeight];
+      });
+      assert.deepEqual(iconSize, [180, 180]);
       assert.match(await page.locator("#summary").innerText(), /208 matches/);
       assert.equal(await page.locator("#data-warning").isVisible(), false);
       assert.equal(await page.locator("tbody tr").first().locator("td").first().innerText(), "Cafe 2");
@@ -340,16 +379,7 @@ test("session storage fallback, blocked storage, partial/stale/missing/invalid d
 
 test("static hosting, full-result batching, large text, and detail scroll preservation", async () => {
   const fixture = await site(snapshot());
-  const html = await fs.readFile(path.join(fixture.directory, "index.html"));
-  const menus = await fs.readFile(path.join(fixture.directory, "menus.js"));
-  const server = http.createServer((request, response) => {
-    if (request.url === "/menus.js") {
-      response.writeHead(200, { "Content-Type": "text/javascript" }); response.end(menus);
-    } else if (request.url === "/") {
-      response.writeHead(200, { "Content-Type": "text/html" }); response.end(html);
-    } else { response.writeHead(404); response.end(); }
-  });
-  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  const server = await staticServer(fixture);
   const browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
