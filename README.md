@@ -1,7 +1,7 @@
 # What the Food
 
 <p align="center">
-  <img src="WhatTheFood.svg" alt="What the Food" width="256" height="256">
+  <a href="https://michaelsinz.github.io/WhatTheFood/"><img src="WhatTheFood.svg" alt="What the Food" width="256" height="256"></a>
 </p>
 
 WTF is a common phrase when we realize that something isn't working as it should (or could).
