@@ -1,4 +1,5 @@
 .DEFAULT_GOAL := all
+.DELETE_ON_ERROR:
 
 CARGO ?= cargo
 NODE ?= node
@@ -8,6 +9,8 @@ CONCURRENCY ?= 4
 TARGET ?=
 TARGET_ARG = $(if $(TARGET),--target $(TARGET))
 FOOD_FINDER = rust/target/$(if $(TARGET),$(TARGET)/)release/food-finder
+DEBUG_FOOD_FINDER = rust/target/debug/food-finder
+RUST_INPUTS = Makefile rust/Cargo.toml rust/Cargo.lock $(shell find rust/src rust/tests) $(wildcard rust/build.rs rust/rust-toolchain rust/rust-toolchain.toml rust-toolchain rust-toolchain.toml .cargo/config .cargo/config.toml)
 PLAYWRIGHT_BROWSERS_PATH ?= $(CURDIR)/.tmp/playwright
 export PLAYWRIGHT_BROWSERS_PATH
 export PATH := $(CURDIR)/.tmp/node-runtime/node_modules/.bin:$(PATH)
@@ -16,13 +19,23 @@ export PATH := $(CURDIR)/.tmp/node-runtime/node_modules/.bin:$(PATH)
 
 all: web
 
-food-finder: test-rust
+food-finder: $(FOOD_FINDER)
+
+# Cargo can reuse an executable after test-only/build-rule changes; record that
+# the current inputs passed their tests so Make does not repeat the recipe.
+$(FOOD_FINDER): $(RUST_INPUTS)
+	$(MAKE) test-rust
 	$(CARGO) build --manifest-path rust/Cargo.toml --release --locked $(TARGET_ARG)
+	touch $@
+
+$(DEBUG_FOOD_FINDER): $(RUST_INPUTS)
+	$(MAKE) test-rust
+	touch $@
 
 web: html menus
 
-quick-web: html test-rust
-	rust/target/debug/food-finder --urls "$(URLS)" --concurrency "$(CONCURRENCY)" --output web/menus.js
+quick-web: html $(DEBUG_FOOD_FINDER)
+	$(DEBUG_FOOD_FINDER) --urls "$(URLS)" --concurrency "$(CONCURRENCY)" --output web/menus.js
 
 html: web/index.html web/wtf.css web/wtf.js web/WhatTheFood.svg web/apple-touch-icon.png
 
@@ -72,7 +85,7 @@ help:
 		'With working Node.js/npm, setup-test installs a local runtime if Node.js is older than 22.' \
 		'' \
 		'make / make web   Test Rust, build the release scraper, copy site assets, fetch fresh menus' \
-		'make quick-web    Copy site assets, run Rust tests, fetch menus with the tested debug scraper' \
+		'make quick-web    Copy site assets, fetch menus with the tested debug scraper' \
 		'make food-finder  Run Rust tests and build rust/target/release/food-finder' \
 		'make html         Copy HTML, CSS, JavaScript, and icons without fetching menus or building Rust' \
 		'make menus        Test/build the scraper and fetch fresh web/menus.js' \

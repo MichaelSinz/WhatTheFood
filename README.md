@@ -29,7 +29,7 @@ make help
 make web
 ```
 
-`make web` runs the Rust unit/CLI tests, builds the release scraper, copies the website assets, and fetches fresh menu data.  Copy the **contents of `web/`** to your static website:
+`make web` builds the release scraper with Rust unit/CLI tests, copies the website assets, and fetches fresh menu data.  Copy the **contents of `web/`** to your static website:
 
 ```text
 index.html
@@ -102,6 +102,8 @@ rsvg-convert --width 180 --height 180 --output site/apple-touch-icon.png WhatThe
 | `make test-web` | Build the HTML and run browser tests |
 | `make test` | Run both Rust and browser tests |
 | `make clean` | Remove Rust build products and copied site assets; retain menu data |
+
+Rust sources, tests, manifests, and build rules are dependency-tracked.  Repeated `make web`, `make menus`, or `make quick-web` calls still fetch fresh menus but skip testing/building unchanged binaries.  Use `make test-rust` to rerun tests explicitly, or `make -B food-finder` to force a tested rebuild after changing external compiler settings or the installed toolchain.
 
 For browser testing only, start with a working Node.js/npm installation, then:
 
