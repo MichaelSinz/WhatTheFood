@@ -828,27 +828,62 @@ pub async fn fetch_all(locations: Vec<Location>, concurrency: usize) -> Result<S
 /// The destination is not replaced until the temporary script has been written
 /// and synced.  This does not guarantee directory-entry durability after a crash.
 pub fn write_script(path: &Path, snapshot: &Snapshot) -> Result<()> {
+    write_atomic(path, |file| write_script_to(file, snapshot))
+        .with_context(|| format!("Writing menu script to {}", path.display()))
+}
+
+/// Atomically write a publication badge, rounding the build time up to the next UTC minute.
+///
+/// # Errors
+///
+/// Timestamp, directory, write, permission, and replacement failures propagate.
+pub fn write_badge(path: &Path, generated_at: DateTime<Utc>) -> Result<()> {
     (|| -> Result<()> {
-        let parent = path
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty())
-            .unwrap_or(Path::new("."));
-        std::fs::create_dir_all(parent)?;
-        let mut file = tempfile::NamedTempFile::new_in(parent)?;
-        write_script_to(&mut file, snapshot)?;
-        file.flush()?;
-        file.as_file().sync_all()?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            file.as_file()
-                .set_permissions(std::fs::Permissions::from_mode(0o644))?;
-        }
-        file.persist(path)
-            .with_context(|| format!("Replacing {}", path.display()))?;
-        Ok(())
+        let timestamp = generated_at
+            .checked_add_signed(chrono::TimeDelta::minutes(1))
+            .and_then(|time| time.with_second(0))
+            .and_then(|time| time.with_nanosecond(0))
+            .context("Rounding publication badge timestamp")?
+            .format("%Y-%m-%d %H:%M UTC")
+            .to_string();
+        write_atomic(path, |file| {
+            writeln!(
+                file,
+                r##"<svg xmlns="http://www.w3.org/2000/svg" width="272" height="20" role="img" aria-label="Last published: {timestamp}">
+  <title>Last published: {timestamp}</title>
+  <rect width="272" height="20" rx="3" fill="#555"/>
+  <path d="M104 0h165a3 3 0 0 1 3 3v14a3 3 0 0 1-3 3H104z" fill="#4c1"/>
+  <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="11">
+    <text x="52" y="14">Last published</text>
+    <text x="188" y="14">{timestamp}</text>
+  </g>
+</svg>"##
+            )?;
+            Ok(())
+        })
     })()
-    .with_context(|| format!("Writing menu script to {}", path.display()))
+    .with_context(|| format!("Writing publication badge to {}", path.display()))
+}
+
+fn write_atomic(path: &Path, write: impl FnOnce(&mut std::fs::File) -> Result<()>) -> Result<()> {
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    std::fs::create_dir_all(parent)?;
+    let mut file = tempfile::NamedTempFile::new_in(parent)?;
+    write(file.as_file_mut())?;
+    file.flush()?;
+    file.as_file().sync_all()?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        file.as_file()
+            .set_permissions(std::fs::Permissions::from_mode(0o644))?;
+    }
+    file.persist(path)
+        .with_context(|| format!("Replacing {}", path.display()))?;
+    Ok(())
 }
 
 /// Write and flush a readable `const menuData = ...;` script without diagnostics.
@@ -1305,6 +1340,45 @@ mod tests {
         let data: Value = serde_json::from_str(json).unwrap();
         assert_eq!(data["schemaVersion"], 1);
         assert_eq!(data["locations"][1]["items"], json!([]));
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn publication_badge_rounds_up_in_utc_and_replaces_existing_output() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("nested/last-published.svg");
+        for (generated_at, expected) in [
+            ("2026-10-29T16:30:43.764Z", "2026-10-29 16:31 UTC"),
+            ("2026-10-29T16:30:00Z", "2026-10-29 16:31 UTC"),
+            ("2026-12-31T23:59:59.999Z", "2027-01-01 00:00 UTC"),
+        ] {
+            write_badge(&path, now(generated_at)).unwrap();
+            let svg = std::fs::read_to_string(&path).unwrap();
+            assert!(svg.contains(&format!("aria-label=\"Last published: {expected}\"")));
+            assert!(svg.contains(&format!("<text x=\"188\" y=\"14\">{expected}</text>")));
+            assert!(svg.ends_with("</svg>\n"));
+            assert_eq!(
+                std::fs::read_dir(path.parent().unwrap()).unwrap().count(),
+                1
+            );
+        }
+        let previous = std::fs::read_to_string(&path).unwrap();
+        assert!(write_badge(&path, DateTime::<Utc>::MAX_UTC).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), previous);
+    }
+
+    #[test]
+    fn failed_atomic_write_preserves_previous_file_and_cleans_up_temporary_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("last-published.svg");
+        std::fs::write(&path, "previous badge").unwrap();
+        let error = write_atomic(&path, |file| {
+            file.write_all(b"partial badge")?;
+            bail!("simulated write failure")
+        })
+        .unwrap_err();
+        assert!(error.to_string().contains("simulated write failure"));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "previous badge");
         assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
     }
 

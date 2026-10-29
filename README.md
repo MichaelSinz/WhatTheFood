@@ -31,18 +31,21 @@ make help
 make web
 ```
 
-`make web` builds the release scraper with Rust unit/CLI tests, copies the website assets, and fetches fresh menu data.  Copy the **contents of `web/`** to your static website:
+`make web` builds the release scraper with Rust unit/CLI tests, copies the website assets, and fetches fresh menu data and its publication badge.  Copy the **contents of `web/`** to your static website:
 
 ```text
 index.html
 wtf.css
 wtf.js
 menus.js
+last-published.svg
 WhatTheFood.svg
 apple-touch-icon.png
 ```
 
-There are no tests, documentation, build tools, or development dependencies in that directory.  The HTML loads the stylesheet, application JavaScript, menu data, and icons from adjacent files.  Keep all six files together.  The full icon appears centered while menus load and disappears when the initial results or an error are ready.  You can also open `web/index.html` directly from disk without a server.
+There are no tests, documentation, build tools, or development dependencies in that directory.  The HTML loads the stylesheet, application JavaScript, menu data, and icons from adjacent files.  Keep these files together.  The full icon appears centered while menus load and disappears when the initial results or an error are ready.  You can also open `web/index.html` directly from disk without a server.
+
+`make web`, `make menus`, and `make quick-web` also generate `last-published.svg` after a successful menu build.  Its UTC build timestamp is rounded up to the next minute, not measured at deployment completion.  The README badge updates when those files are successfully deployed; failed builds leave the previous badge unchanged.
 
 On iPhone, Safari's **Share → Add to Home Screen** uses the PNG icon generated from `WhatTheFood.svg`.  The SVG also serves as the browser favicon.  If an existing home-screen shortcut still shows the old icon after deployment, remove it and add it again.
 
@@ -52,7 +55,7 @@ Configure your web server to revalidate `menus.js` or give it a short cache life
 
 ```sh
 make food-finder
-rust/target/release/food-finder --urls locations.json --output web/menus.js
+rust/target/release/food-finder --urls locations.json --output web/menus.js --badge web/last-published.svg
 
 # Without --output, only the generated data script goes to stdout.
 rust/target/release/food-finder --urls locations.json > web/menus.js
@@ -69,6 +72,8 @@ Selected locations must have nonblank names and unique IDs: the parsed URL hostn
 Every invocation fetches fresh menus, with independent sessions per location and no request/menu cache.  `menus.js` uses readable multi-line formatting with two-space indentation, both for named-file output and stdout.  All progress, notices, warnings, and errors go to stderr.  Credentials remain in memory and are not written to the output.
 
 `--output` atomically replaces the named file.  If a location fails, the scraper still produces a clearly marked partial snapshot containing successful locations; the page displays the failures.  If at most half of the selected linked locations fail, the scraper warns on stderr and exits successfully.  If more than half fail (including when all fail), it reports an error and exits nonzero after writing the snapshot.  Unlinked entries are excluded from this threshold; successfully fetched closed or empty menus count as successes.  Fatal input or write errors still exit nonzero.  If your deployment must reject all partial snapshots, check the snapshot's `complete` field before publishing; exit status alone does not indicate completeness.  Prefer `--output` over shell redirection when replacing deployed data.
+
+The optional `--badge PATH` writes an SVG only after menu output succeeds and the failure threshold is satisfied.  It uses the same atomic file replacement as `--output`; badge write errors fail the command.  The two files are replaced individually, not as a transaction.
 
 The executable needs no separately installed Rust runtime, OpenSSL library, Node.js, or browser.  Rustls provides HTTPS with bundled public certificate roots, and timezone data is embedded.  The URL catalog remains a runtime input, not a compiled dependency.  Release builds use link-time optimization, one code-generation unit, and stripped symbols.
 

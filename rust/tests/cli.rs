@@ -28,10 +28,16 @@ fn majority_failures_exit_nonzero_for_stdout_and_named_output() {
     )
     .unwrap();
     let path = directory.path().join("menus.js");
+    let badge = directory.path().join("last-published.svg");
+    std::fs::write(&badge, "previous badge").unwrap();
     for named_output in [false, true] {
         std::fs::write(&path, "previous menus").unwrap();
         let mut command = Command::new(env!("CARGO_BIN_EXE_food-finder"));
-        command.arg("--urls").arg(&catalog);
+        command
+            .arg("--urls")
+            .arg(&catalog)
+            .arg("--badge")
+            .arg(&badge);
         if named_output {
             command.arg("--output").arg(&path);
         }
@@ -56,6 +62,7 @@ fn majority_failures_exit_nonzero_for_stdout_and_named_output() {
         assert!(stderr.contains("Error: More than half of the linked locations failed"));
         assert!(!stderr.contains("Warning: PARTIAL"));
         assert!(!stderr.contains("const menuData"));
+        assert_eq!(std::fs::read_to_string(&badge).unwrap(), "previous badge");
     }
 }
 
@@ -88,6 +95,8 @@ fn output_failures_identify_the_destination_and_preserve_existing_files() {
     let catalog = directory.path().join("catalog.json");
     let blocker = directory.path().join("not-a-directory");
     let destination = blocker.join("menus.js");
+    let badge = directory.path().join("last-published.svg");
+    std::fs::write(&badge, "previous badge").unwrap();
     std::fs::write(
         &catalog,
         json!([{"name":"Unlinked", "url":null}]).to_string(),
@@ -99,6 +108,8 @@ fn output_failures_identify_the_destination_and_preserve_existing_files() {
         .arg(&catalog)
         .arg("--output")
         .arg(&destination)
+        .arg("--badge")
+        .arg(&badge)
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(1));
@@ -110,6 +121,111 @@ fn output_failures_identify_the_destination_and_preserve_existing_files() {
     );
     assert!(stderr.contains("os error"), "{stderr}");
     assert_eq!(std::fs::read_to_string(&blocker).unwrap(), "keep this file");
+    assert_eq!(std::fs::read_to_string(&badge).unwrap(), "previous badge");
+}
+
+#[test]
+fn badge_argument_writes_rounded_utc_with_named_or_stdout_menus() {
+    let directory = tempfile::tempdir().unwrap();
+    let catalog = directory.path().join("catalog.json");
+    let menus = directory.path().join("menus.js");
+    let badge = directory.path().join("nested/last-published.svg");
+    std::fs::write(
+        &catalog,
+        json!([{"name":"Unlinked", "url":null}]).to_string(),
+    )
+    .unwrap();
+    for named_output in [false, true] {
+        let before = chrono::Utc::now();
+        let mut command = Command::new(env!("CARGO_BIN_EXE_food-finder"));
+        command
+            .arg("--urls")
+            .arg(&catalog)
+            .arg("--badge")
+            .arg(&badge);
+        if named_output {
+            command.arg("--output").arg(&menus);
+        }
+        let output = command.output().unwrap();
+        assert!(output.status.success(), "{:?}", output.stderr);
+        let after = chrono::Utc::now();
+        let svg = std::fs::read_to_string(&badge).unwrap();
+        let timestamp = svg
+            .split_once("aria-label=\"Last published: ")
+            .unwrap()
+            .1
+            .split_once('"')
+            .unwrap()
+            .0;
+        let rounded = chrono::NaiveDateTime::parse_from_str(timestamp, "%Y-%m-%d %H:%M UTC")
+            .unwrap()
+            .and_utc();
+        assert!(rounded > before && rounded <= after + chrono::TimeDelta::minutes(1));
+        if named_output {
+            assert!(output.stdout.is_empty());
+            assert_eq!(data(&std::fs::read(&menus).unwrap())["complete"], true);
+        } else {
+            assert_eq!(data(&output.stdout)["complete"], true);
+        }
+        assert_eq!(
+            std::fs::read_dir(badge.parent().unwrap()).unwrap().count(),
+            1
+        );
+    }
+}
+
+#[test]
+fn badge_write_failure_is_reported_without_claiming_success() {
+    let directory = tempfile::tempdir().unwrap();
+    let catalog = directory.path().join("catalog.json");
+    let menus = directory.path().join("menus.js");
+    let blocker = directory.path().join("not-a-directory");
+    let badge = blocker.join("last-published.svg");
+    std::fs::write(
+        &catalog,
+        json!([{"name":"Unlinked", "url":null}]).to_string(),
+    )
+    .unwrap();
+    std::fs::write(&blocker, "keep this file").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_food-finder"))
+        .arg("--urls")
+        .arg(&catalog)
+        .arg("--output")
+        .arg(&menus)
+        .arg("--badge")
+        .arg(&badge)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains(&format!("Writing publication badge to {}", badge.display())));
+    assert!(!stderr.contains("Wrote publication badge"));
+    assert_eq!(std::fs::read_to_string(&blocker).unwrap(), "keep this file");
+    assert_eq!(data(&std::fs::read(&menus).unwrap())["complete"], true);
+}
+
+#[test]
+fn badge_and_menu_output_cannot_use_the_same_path() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("menus.js");
+    std::fs::write(&path, "previous menus").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_food-finder"))
+        .arg("--urls")
+        .arg(directory.path().join("catalog.json"))
+        .arg("--output")
+        .arg(&path)
+        .arg("--badge")
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("different paths")
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "previous menus");
 }
 
 #[test]

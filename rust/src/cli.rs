@@ -18,6 +18,10 @@ pub(crate) struct Args {
     #[arg(long)]
     pub(crate) output: Option<PathBuf>,
 
+    /// Atomically write a publication badge after a successful menu build (UTC)
+    #[arg(long)]
+    pub(crate) badge: Option<PathBuf>,
+
     /// JSON location catalog to read at runtime (names and ordering URLs)
     #[arg(long, alias = "catalog")]
     pub(crate) urls: PathBuf,

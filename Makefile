@@ -35,7 +35,7 @@ $(DEBUG_FOOD_FINDER): $(RUST_INPUTS)
 web: html menus
 
 quick-web: html $(DEBUG_FOOD_FINDER)
-	$(DEBUG_FOOD_FINDER) --urls "$(URLS)" --concurrency "$(CONCURRENCY)" --output web/menus.js
+	$(DEBUG_FOOD_FINDER) --urls "$(URLS)" --concurrency "$(CONCURRENCY)" --output web/menus.js --badge web/last-published.svg
 
 html: web/index.html web/wtf.css web/wtf.js web/WhatTheFood.svg web/apple-touch-icon.png
 
@@ -48,7 +48,7 @@ web/WhatTheFood.svg: WhatTheFood.svg
 	cp $< $@
 
 menus: food-finder
-	$(FOOD_FINDER) --urls "$(URLS)" --concurrency "$(CONCURRENCY)" --output web/menus.js
+	$(FOOD_FINDER) --urls "$(URLS)" --concurrency "$(CONCURRENCY)" --output web/menus.js --badge web/last-published.svg
 
 test-rust:
 	$(CARGO) test --manifest-path rust/Cargo.toml --locked
@@ -85,18 +85,18 @@ help:
 		'With working Node.js/npm, setup-test installs a local runtime if Node.js is older than 22.' \
 		'' \
 		'make / make web   Test Rust, build the release scraper, copy site assets, fetch fresh menus' \
-		'make quick-web    Copy site assets, fetch menus with the tested debug scraper' \
+		'make quick-web    Copy site assets, fetch menus and badge with the tested debug scraper' \
 		'make food-finder  Run Rust tests and build rust/target/release/food-finder' \
 		'make html         Copy HTML, CSS, JavaScript, and icons without fetching menus or building Rust' \
-		'make menus        Test/build the scraper and fetch fresh web/menus.js' \
+		'make menus        Test/build the scraper, fetch web/menus.js, generate last-published.svg' \
 		'make test-rust    Run offline Rust unit and CLI tests' \
 		'make check        Run Rust tests, formatting checks, and Clippy' \
 		'make setup-test   Set up an optional local runtime, browser-test dependencies, and engines' \
 		'make test-web     Build HTML and run Chromium/WebKit tests (after setup-test)' \
 		'make test         Run Rust and browser tests' \
-		'make clean        Remove Rust build products and copied site assets; keep menus.js' \
+		'make clean        Remove Rust build products and copied site assets; keep menus.js and badge' \
 		'make help         Show this help' \
 		'' \
 		'Overrides: URLS=locations.json CONCURRENCY=4 CARGO=cargo NODE=node NPM=npm' \
 		'Cross-build: make food-finder TARGET=i686-unknown-linux-musl (needs target/toolchain)' \
-		'Deploy only the contents of web/: index.html, wtf.css, wtf.js, menus.js, WhatTheFood.svg, apple-touch-icon.png.'
+		'Deploy only the contents of web/: index.html, wtf.css, wtf.js, menus.js, last-published.svg, WhatTheFood.svg, apple-touch-icon.png.'

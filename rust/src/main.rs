@@ -9,7 +9,7 @@ mod cli;
 use anyhow::{Context, Result};
 use clap::Parser;
 use cli::Args;
-use food_finder::{Location, fetch_all, write_script, write_script_to};
+use food_finder::{Location, fetch_all, write_badge, write_script, write_script_to};
 use std::process::ExitCode;
 
 #[tokio::main]
@@ -27,6 +27,10 @@ async fn main() -> ExitCode {
 ///
 /// `Err` covers majority location failures, invalid input, and fatal fetch/output errors.
 async fn run(args: Args) -> Result<()> {
+    anyhow::ensure!(
+        args.badge.is_none() || args.badge != args.output,
+        "--badge and --output must use different paths"
+    );
     let catalog = std::fs::read_to_string(&args.urls)
         .with_context(|| format!("Reading {}", args.urls.display()))?;
     let mut locations: Vec<Location> = serde_json::from_str(&catalog)
@@ -68,6 +72,10 @@ async fn run(args: Args) -> Result<()> {
     );
     if !snapshot.complete {
         eprintln!("Warning: PARTIAL snapshot: some locations failed; see diagnostics above.");
+    }
+    if let Some(path) = &args.badge {
+        write_badge(path, chrono::Utc::now())?;
+        eprintln!("Wrote publication badge to {}", path.display());
     }
     Ok(())
 }
