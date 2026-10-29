@@ -1,7 +1,9 @@
 # What the Food
 
 <p align="center">
-  <a href="https://michaelsinz.github.io/WhatTheFood/"><img src="WhatTheFood.svg" alt="What the Food" width="256" height="256"></a>
+  <a href="https://michaelsinz.github.io/WhatTheFood/"><img src="WhatTheFood.svg" alt="What the Food" width="256" height="256"/></a>
+  <br/>
+  <a href="https://github.com/MichaelSinz/WhatTheFood/actions/workflows/pages.yml"><img src="https://michaelsinz.github.io/WhatTheFood/last-published.svg" alt="Last successful GitHub Pages publication"/></a>
 </p>
 
 WTF is a common phrase when we realize that something isn't working as it should (or could).
