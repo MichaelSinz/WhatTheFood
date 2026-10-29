@@ -1,9 +1,10 @@
+# Daily weekday build of the GitHub Pages site
+# Starts early in the day Pacific Time
 name: Publish GitHub Pages
 
 on:
   schedule:
-    - cron: '17 7 * * 1-5'
-      timezone: America/Los_Angeles
+    - cron: '17 13 * * 1-5'
   workflow_dispatch:
 
 permissions:
