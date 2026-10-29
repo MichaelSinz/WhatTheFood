@@ -252,6 +252,56 @@ for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]]) {
     } finally { await browser.close(); await fs.rm(fixture.directory, { recursive: true }); }
   });
 
+  test(`${name}: All locations checkbox tracks mixed selection and saves bulk changes`, async () => {
+    const fixture = await site(snapshot("2026-10-27", true));
+    const browser = await engine.launch({
+      headless: true,
+      ...(name === "webkit" && process.env.PLAYWRIGHT_WEBKIT_EXECUTABLE
+        ? { executablePath: process.env.PLAYWRIGHT_WEBKIT_EXECUTABLE } : {}),
+    });
+    try {
+      const page = await browser.newPage({ viewport: { width: 375, height: 320 } });
+      await page.goto(fixture.url);
+      await page.locator("#locations-button").click();
+      const all = page.getByRole("checkbox", { name: "Select All", exact: true });
+      const cafe = page.getByRole("switch", { name: "Cafe 2", exact: true });
+      const switches = page.getByRole("switch");
+      const state = () => all.evaluate(input => [input.checked, input.indeterminate]);
+      assert.deepEqual(await state(), [true, false]);
+      assert.equal(await switches.count(), 3, "Unlinked locations are not selectable");
+      await cafe.uncheck();
+      assert.deepEqual(await state(), [false, true]);
+      await all.click();
+      assert.deepEqual(await state(), [true, false]);
+      assert.equal(await switches.evaluateAll(inputs => inputs.every(input => input.checked)), true);
+      await page.getByRole("switch", { name: "Failed", exact: true }).uncheck();
+      assert.deepEqual(await state(), [false, true], "Failed locations count toward the selection");
+      await page.getByRole("switch", { name: "Failed", exact: true }).check();
+      assert.deepEqual(await state(), [true, false]);
+      await page.locator("#locations-dialog").evaluate(dialog => { dialog.scrollTop = dialog.scrollHeight; });
+      const header = await all.boundingBox();
+      const dialog = await page.locator("#locations-dialog").boundingBox();
+      assert(header.y >= dialog.y && header.y + header.height <= dialog.y + dialog.height,
+        "All remains visible while the locations list is scrolled");
+      await all.click();
+      assert.deepEqual(await state(), [false, false]);
+      assert.equal(await switches.evaluateAll(inputs => inputs.every(input => !input.checked)), true);
+      assert.deepEqual(await page.evaluate(key => JSON.parse(localStorage.getItem(key)), storageKey),
+        ["cafe2.buy-ondemand.com", "cafe10.buy-ondemand.com", "failed"]);
+      await page.locator("#locations-dialog [data-close]").click();
+      await page.reload();
+      assert.equal(await page.locator("#empty-title").textContent(), "No locations enabled");
+      await page.locator("#locations-button").click();
+      assert.deepEqual(await state(), [false, false]);
+      await all.click();
+      assert.deepEqual(await state(), [true, false]);
+      await page.reload();
+      assert.match(await page.locator("#summary").innerText(), /208 matches/);
+      await page.locator("#locations-button").click();
+      assert.deepEqual(await state(), [true, false]);
+    } finally { await browser.close(); await fs.rm(fixture.directory, { recursive: true }); }
+  });
+
   test(`${name}: search keeps live results in a browser-resized phone viewport`, async () => {
     const fixture = await site(snapshot());
     const browser = await engine.launch({

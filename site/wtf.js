@@ -264,6 +264,31 @@
 		selectedItem = null;
 	});
 
+	function updateAllLocations() {
+		const locations = data.locations.filter(
+			(location) => location.status !== "no_ordering_url",
+		);
+		const enabled = locations.filter(
+			(location) => !preferences.disabled.includes(location.id),
+		).length;
+		$("all-locations").disabled = !locations.length;
+		$("all-locations").checked =
+			locations.length > 0 && enabled === locations.length;
+		$("all-locations").indeterminate = enabled > 0 && enabled < locations.length;
+	}
+	$("all-locations").addEventListener("change", () => {
+		const ids = new Set(
+			data.locations
+				.filter((location) => location.status !== "no_ordering_url")
+				.map((location) => location.id),
+		);
+		preferences.disabled = preferences.disabled.filter((id) => !ids.has(id));
+		if (!$("all-locations").checked) preferences.disabled.push(...ids);
+		saveLocations();
+		renderLocations();
+		render();
+	});
+
 	function renderLocations() {
 		const fragment = document.createDocumentFragment();
 		for (const location of data.locations) {
@@ -287,6 +312,7 @@
 						(id) => id !== location.id,
 					);
 					if (!toggle.checked) preferences.disabled.push(location.id);
+					updateAllLocations();
 					saveLocations();
 					render();
 				});
@@ -304,6 +330,7 @@
 			fragment.append(row);
 		}
 		$("location-list").replaceChildren(fragment);
+		updateAllLocations();
 		$("generated-at").textContent =
 			`Menus for ${data.campusDay}. Generated ${new Date(data.generatedAt).toLocaleString()}.`;
 	}
