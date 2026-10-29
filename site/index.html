@@ -162,10 +162,7 @@
 				<button data-close>Done</button>
 			</div>
 			<div class="dialog-body">
-				<p class="muted">
-					Choose which locations to show. This filters the saved menus; it does
-					not fetch new data.
-				</p>
+				<p class="muted">Choose which locations to show.</p>
 				<p id="preferences-warning" class="warning" hidden></p>
 				<p id="generated-at" class="muted"></p>
 				<div id="location-list"></div>
@@ -212,7 +209,6 @@
 		<dialog id="about-dialog" aria-labelledby="about-title">
 			<div class="dialog-header">
 				<h2 id="about-title">What the Food</h2>
-				<img src="last-published.svg" alt="Menu Publication Date"/>
 				<button data-close>Done</button>
 			</div>
 			<div class="dialog-body">
@@ -263,6 +259,9 @@
 					saved in local storage, with session storage as a fallback. Menus stay
 					in menus.js; search and sorting stay in memory.
 				</p>
+				<center>
+					<img src="last-published.svg" alt="Menu Publication Date"/>
+				</center>
 			</div>
 		</dialog>
 		<noscript
