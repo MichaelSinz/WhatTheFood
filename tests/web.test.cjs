@@ -94,6 +94,7 @@ for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]]) {
       }
       releaseMenus();
       await page.waitForLoadState("load");
+      await page.locator("#loading-screen").waitFor({ state: "hidden" });
       assert.equal(await page.locator("#loading-screen").isVisible(), false);
       assert.match(await page.locator("#summary").innerText(), /208 matches/);
       for (const viewport of [{ width: 375, height: 667 }, { width: 1200, height: 800 }]) {
@@ -142,6 +143,7 @@ for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]]) {
     try {
       const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
       await page.goto(fixture.url);
+      await page.locator("#loading-screen").waitFor({ state: "hidden" });
       await page.locator("#sort-field").selectOption("price");
       await page.locator("#sort-direction").click();
       for (const [query, count] of [
@@ -181,6 +183,7 @@ for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]]) {
       page.on("request", request => requests.push(request.url()));
       await page.clock.install({ time: new Date("2026-10-27T19:00:00Z") });
       await page.goto(fixture.url);
+      await page.locator("#loading-screen").waitFor({ state: "hidden" });
       const iconSize = await page.locator('link[rel="apple-touch-icon"]').evaluate(async link => {
         const image = new Image();
         image.src = link.href;
@@ -226,6 +229,7 @@ for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]]) {
       assert.deepEqual(saved, ["cafe10.buy-ondemand.com"]);
       assert.deepEqual(await page.evaluate(() => Object.keys(localStorage)), [storageKey]);
       await page.reload();
+      await page.locator("#loading-screen").waitFor({ state: "hidden" });
       assert.equal(await page.locator("#query").inputValue(), "");
       assert.equal(await page.locator("#sort-field").inputValue(), "location");
       assert.match(await page.locator("#summary").innerText(), /207 matches/);
@@ -262,6 +266,7 @@ for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]]) {
     try {
       const page = await browser.newPage({ viewport: { width: 375, height: 320 } });
       await page.goto(fixture.url);
+      await page.locator("#loading-screen").waitFor({ state: "hidden" });
       await page.locator("#locations-button").click();
       const all = page.getByRole("checkbox", { name: "Select All", exact: true });
       const cafe = page.getByRole("switch", { name: "Cafe 2", exact: true });
@@ -290,12 +295,14 @@ for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]]) {
         ["cafe2.buy-ondemand.com", "cafe10.buy-ondemand.com", "failed"]);
       await page.locator("#locations-dialog [data-close]").click();
       await page.reload();
+      await page.locator("#loading-screen").waitFor({ state: "hidden" });
       assert.equal(await page.locator("#empty-title").textContent(), "No locations enabled");
       await page.locator("#locations-button").click();
       assert.deepEqual(await state(), [false, false]);
       await all.click();
       assert.deepEqual(await state(), [true, false]);
       await page.reload();
+      await page.locator("#loading-screen").waitFor({ state: "hidden" });
       assert.match(await page.locator("#summary").innerText(), /208 matches/);
       await page.locator("#locations-button").click();
       assert.deepEqual(await state(), [true, false]);
@@ -318,6 +325,7 @@ for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]]) {
       page.on("pageerror", error => errors.push(error.message));
       await page.clock.install({ time: new Date("2026-10-27T19:00:00Z") });
       await page.goto(fixture.url);
+      await page.locator("#loading-screen").waitFor({ state: "hidden" });
       assert.equal(await page.locator(".sort-controls").isVisible(), false);
       assert.equal(await page.locator("#compact-sort").isVisible(), true);
       const widths = await page.evaluate(() => ["compact-sort", "about-button", "locations-button"]
@@ -383,6 +391,7 @@ test("session storage fallback, blocked storage, partial/stale/missing/invalid d
     }));
     const page = await context.newPage();
     await page.goto(fixture.url);
+    await page.locator("#loading-screen").waitFor({ state: "hidden" });
     assert.match(await page.locator("#data-warning").innerText(), /Partial snapshot/);
     assert.match(await page.locator("#data-warning").innerText(), /not today/);
     assert.equal(await page.locator("#preferences-warning").isVisible(), false);
@@ -391,6 +400,7 @@ test("session storage fallback, blocked storage, partial/stale/missing/invalid d
     await page.getByRole("switch", { name: "Cafe 10", exact: true }).uncheck();
     assert.match(await page.locator("#location-list").innerText(), /HTTP 403/);
     await page.reload();
+    await page.locator("#loading-screen").waitFor({ state: "hidden" });
     assert.deepEqual(await page.evaluate(key => JSON.parse(sessionStorage.getItem(key)), storageKey), ["cafe10.buy-ondemand.com"]);
     assert.match(await page.locator("#summary").innerText(), /207 matches/);
     await context.close();
@@ -404,6 +414,7 @@ test("session storage fallback, blocked storage, partial/stale/missing/invalid d
     const errors = [];
     blockedPage.on("pageerror", error => errors.push(error.message));
     await blockedPage.goto(fixture.url);
+    await blockedPage.locator("#loading-screen").waitFor({ state: "hidden" });
     assert.match(await blockedPage.locator("#summary").innerText(), /208 matches/);
     assert.equal(await blockedPage.locator("#preferences-warning").isVisible(), false);
     await blockedPage.locator("#locations-button").click();
@@ -411,6 +422,7 @@ test("session storage fallback, blocked storage, partial/stale/missing/invalid d
     const missing = await site(null);
     fixtures.push(missing);
     await blockedPage.goto(missing.url);
+    await blockedPage.locator("#loading-screen").waitFor({ state: "hidden" });
     assert.equal(await blockedPage.locator("#empty-title").innerText(), "Unable to load menus");
     assert.equal(await blockedPage.locator("#loading-screen").isVisible(), false);
     await blockedPage.locator("#about-button").click();
@@ -418,6 +430,7 @@ test("session storage fallback, blocked storage, partial/stale/missing/invalid d
     const invalid = await site({ schemaVersion: 999 });
     fixtures.push(invalid);
     await blockedPage.goto(invalid.url);
+    await blockedPage.locator("#loading-screen").waitFor({ state: "hidden" });
     assert.match(await blockedPage.locator("#empty-message").innerText(), /Unsupported menu data format/);
     assert.equal(await blockedPage.locator("#loading-screen").isVisible(), false);
     assert.deepEqual(errors, []);
@@ -434,6 +447,7 @@ test("static hosting, full-result batching, large text, and detail scroll preser
   try {
     const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    await page.locator("#loading-screen").waitFor({ state: "hidden" });
     while (await page.locator("#more").isVisible()) await page.locator("#more").click();
     assert.equal(await page.locator("tbody tr").count(), 208);
     await page.locator("tbody tr").nth(150).getByRole("button").click();
@@ -468,6 +482,7 @@ test("optional real Rust-generated menus.js loads without external requests", {
     page.on("pageerror", error => errors.push(error.message));
     page.on("request", request => { if (!request.url().startsWith("file:")) external.push(request.url()); });
     await page.goto(fixture.url);
+    await page.locator("#loading-screen").waitFor({ state: "hidden" });
     const count = value.locations.reduce((total, location) => total + location.items.length, 0);
     assert.match(await page.locator("#summary").innerText(), new RegExp(`${count.toLocaleString()} matches`));
     await page.locator("#locations-button").click();

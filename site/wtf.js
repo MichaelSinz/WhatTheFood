@@ -5,7 +5,7 @@
  * Only location choices are persisted; search and sorting stay in memory.
  */
 "use strict";
-(() => {
+setTimeout(() => {
 	//==============================================================================
 	// APPLICATION STATE: Menu data and browser-local preferences
 	//==============================================================================
@@ -635,4 +635,4 @@
 	}
 	updateSortControls();
 	$("loading-screen").hidden = true;
-})();
+}, 50);
