@@ -3,8 +3,11 @@
 name: Publish GitHub Pages
 
 on:
-  schedule:
-    - cron: '12 12 * * 1-5'
+  # If only this worked reliably...  But it does not, so we best just
+  # disable it for now.  This note and example are here for reference
+  # as to why we are not using this feature.
+  #schedule:
+  #  - cron: '12 12 * * 1-5'
   workflow_dispatch:
 
 permissions:
