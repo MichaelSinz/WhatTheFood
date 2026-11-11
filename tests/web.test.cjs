@@ -399,7 +399,7 @@ for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]]) {
       await page.locator("#locations-button").click();
       await page.getByRole("radio", { name: "Categories", exact: true }).check();
       assert.deepEqual(await page.getByRole("switch").evaluateAll(inputs =>
-        inputs.map(input => input.parentElement.textContent)), ["Bakery", "Hot Coffee", "Sides"]);
+        inputs.map(input => input.parentElement.textContent)), ["Bakery", "Coffee + Espresso", "Sides"]);
       await page.getByRole("switch", { name: "Sides", exact: true }).uncheck();
       assert.match(await page.locator("#summary").textContent(), /2 matches/);
       await page.getByRole("switch", { name: "Sides", exact: true }).check();
@@ -498,12 +498,18 @@ for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]]) {
     const groups = [
       ["Entr\u00e9es", ["Entrees", "Entr\u00e9e", "Entr\u00e9es"]],
       ["\u00c0 la carte", ["A La Carte", "\u00c0 la carte"]],
-      ["Breakfast", ["Breakfast", "Breakfast ", "BREAKFAST", "\u00a0Breakfast\t"]],
+      ["Breakfast", ["Breakfast", "Breakfast ", "BREAKFAST", "\u00a0Breakfast\t",
+        "Breakfast - Available All Day", "Hot Breakfast", "Breakfast Sandwich"]],
       ["Chef's Table", ["Chef Table", "Chef's Table", "Chef\u2019s Table"]],
+      ["Coffee + Espresso", ["Coffee + Espresso", "Coffee", "Hot Coffee", "Espresso",
+        "Espresso + Coffee", "Espresso Beverages", "Classic", "On Bar", "Specialty Coffee Series",
+        "Specialty Coffee Series 16oz", "Specialty Coffee Series 20oz"]],
       ["Cold Drinks", ["Cold Dinks", "Cold Drinks"]],
       ["Himalaya", ["Himalaya", "Himalayan"]],
-      ["Pizza", ["Pizza", "Pizzas"]],
-      ["Sandwiches", ["Sandwiches", "Half Sandwiches", "Whole Sandwiches"]],
+      ["Pizza", ["Pizza", "Pizzas", "Pizza By The Slice", "Napoli", "Veloce Slices"]],
+      ["Salads", ["Salads", "Signature Salads"]],
+      ["Sandwiches", ["Sandwiches", "Half Sandwiches", "Whole Sandwiches",
+        "Signature Sandwiches", "Cuban Sandwiches"]],
       ["Sandwiches + More", ["Sandwiches & More", "Sandwiches + More"]],
       ["Sides + Dessert", ["Sides & Dessert", "Sides + Dessert"]],
       ["Small Plates", ["Small Plate", "Small Plates"]],
@@ -519,12 +525,11 @@ for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]]) {
       ["Famous Series", ["Famous Series 16oz", "Famous Series 20oz"]],
       ["Nitro Tea Series", ["Nitro Tea Series 16oz", "Nitro Tea Series 20oz"]],
       ["Seasonal Options", ["Seasonal Options 16oz", "Seasonal Options 20oz"]],
-      ["Specialty Coffee Series", ["Specialty Coffee Series 16oz", "Specialty Coffee Series 20oz"]],
       ["Iced Tea", ["Iced Tea 12 fl. oz", "Iced Tea 500ml", "Iced Tea 0.5L"]],
     ];
     const distinct = [
-      "Hot Breakfast", "Breakfast - Available All Day", "Entr\u00e9es + Sides",
-      "Pizza By The Slice", "Signature Sandwiches",
+      "Burgers + More", "Cold Brew", "Hot Drinks", "Non-Coffee", "Entr\u00e9es + Sides",
+      "Cauliflower Crust Pizza", "Detroit Style Pizza",
       "Watercress Entrees", "Large Plate", "Specialty Coffee Series 2", "16oz",
     ];
     const categories = [...groups.flatMap(([, variants]) => variants), ...distinct];
@@ -563,27 +568,41 @@ for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]]) {
         "Entr\u00e9e", "Entrees", "\u00a0Breakfast ", "Teriayki", "Missing\u00a0  Category",
         "Matcha Series 16oz", "Matcha Series 20oz", "Milk Tea Series 16oz",
         "Half Sandwiches", "Whole Sandwiches",
+        "Hot Breakfast", "Signature Sandwiches", "Cuban Sandwiches",
+        "Coffee", "Espresso", "Specialty Coffee Series", "Specialty Coffee Series 16oz",
+        "Signature Salads", "Pizza By The Slice", "Napoli", "Veloce Slices",
       ])));
       await page.reload();
       await page.locator("#loading-screen").waitFor({ state: "hidden" });
-      assert.equal(await page.locator("tbody tr").count(), categories.length - 18,
+      const excludedLabels = new Set([
+        "Entr\u00e9es", "Breakfast", "Teriyaki", "Matcha Series", "Milk Tea Series",
+        "Sandwiches", "Coffee + Espresso", "Salads", "Pizza",
+      ]);
+      const excludedCount = groups.filter(([label]) => excludedLabels.has(label))
+        .reduce((count, [, variants]) => count + variants.length, 0);
+      assert.equal(await page.locator("tbody tr").count(), categories.length - excludedCount,
         "Earlier spellings and duplicate exclusions use the current normalization on load");
       await page.locator("#locations-button").click();
       await page.getByRole("radio", { name: "Categories", exact: true }).check();
       assert.equal(await page.getByRole("switch", { name: "Entr\u00e9es", exact: true }).isChecked(), false);
       assert.equal(await page.getByRole("switch", { name: "Missing Category", exact: true }).isChecked(), false);
-      await page.getByRole("switch", { name: "Pizza", exact: true }).uncheck();
+      assert.equal(await page.getByRole("switch", { name: "Pizza", exact: true }).isChecked(), false);
+      await page.getByRole("switch", { name: "Cold Brew", exact: true }).uncheck();
+      await page.getByRole("switch", { name: "Cold Brew", exact: true }).check();
       assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem("what-the-food.categories.v1"))),
-        ["Entr\u00e9es", "Breakfast", "Teriyaki", "Missing Category", "Matcha Series", "Milk Tea Series", "Sandwiches", "Pizza"]);
+        ["Entr\u00e9es", "Breakfast", "Teriyaki", "Missing Category", "Matcha Series", "Milk Tea Series",
+          "Sandwiches", "Coffee + Espresso", "Salads", "Pizza"]);
       data.locations[0].items = [
         "ENTR\u00c9E", "bre\u0301akfast\t", "Teriayki\u00a0", "Missing CATEGORY", "PIZZAS",
-        "MATCHA SERIES 24 oz", "Milk Tea Series 500ml", "Sandwiches", "HALF SANDWICHES", "Brand new category",
+        "MATCHA SERIES 24 oz", "Milk Tea Series 500ml", "Sandwiches", "HALF SANDWICHES",
+        "Breakfast Sandwich", "On Bar", "Specialty Coffee Series 24oz", "Salads", "Brand new category",
+        "Pizza By The Slice", "NAPOLI", "Veloce Slices",
       ].map((category, index) => ({ ...first, id: first.id + index, name: `Tomorrow ${index}`, category: `New menu / ${category}` }));
       await fs.writeFile(path.join(fixture.directory, "menus.js"), `const menuData = ${JSON.stringify(data)};\n`);
       await page.reload();
       await page.locator("#loading-screen").waitFor({ state: "hidden" });
       assert.equal(await page.locator("tbody tr").count(), 1, "Exclusions match new spellings on later days");
-      assert.equal(await page.locator("tbody .item-button").textContent(), "Tomorrow 9");
+      assert.equal(await page.locator("tbody .item-button").textContent(), "Tomorrow 13");
       await page.locator("#locations-button").click();
       await page.getByRole("radio", { name: "Categories", exact: true }).check();
       await page.getByRole("switch", { name: "Entr\u00e9es", exact: true }).check();

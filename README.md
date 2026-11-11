@@ -18,7 +18,7 @@ Search requires every word to match.  Use double quotes for a phrase within one 
 
 The **Filters** button offers three groups: Locations, Vendors, and Categories.  All three apply together.  Vendor names and category names (such as Bakery or Sides) apply across locations.  Only exclusions are saved, so new vendors and categories are included automatically.  Exclusions remain remembered even when names disappear from a day's menus and return later.
 
-Category filters combine case, accent, and spacing variants, equivalent `&`/`+`/`and` separators, and known spellings such as Entrée/Entrees/Entrées.  Categories that differ only by size are grouped together.  Original category text stays in menu results.  Category exclusions use these same matching rules.
+Category filters group equivalent spellings, case, accents, spacing, `&`/`+`/`and` separators, and size variants.  Breakfast, Coffee + Espresso, Sandwiches, Salads, and Pizza include equivalent vendor-specific names.  Pizza includes whole pizzas and slices; cauliflower-crust and Detroit-style pizzas have separate filters.  Mixed “+ More” categories, Cold Brew, and non-coffee drinks have separate filters.  Results display original category text; exclusions apply to the whole group.
 
 Focus the search box to pick from your six most-used searches, ranked by use with recent use breaking ties.  Suggestions narrow as you type.  A search counts when you leave the field, press Enter, open an item, or choose a suggestion, not on every keystroke.
 
