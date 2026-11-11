@@ -16,11 +16,15 @@ The page searches a snapshot produced by the scraper; it never contacts the menu
 
 Search requires every word to match.  Use double quotes for a phrase within one field, such as `"Food hall 6" chicken`.  Matching ignores case and accents; results keep your chosen sort order.
 
-You can choose which locations to include in searches and results directly on the page.  Your choices are stored locally in your browser and remembered across page loads in the same browser.
+The **Filters** button offers three groups: Locations, Vendors, and Categories.  All three apply together.  Vendor names and category names (such as Bakery or Sides) apply across locations.  Only exclusions are saved, so new vendors and categories are included automatically.  Exclusions remain remembered even when names disappear from a day's menus and return later.
 
-Searches and location preferences are not sent to a server.  In fact, the page works directly from your local filesystem without an HTTP server.
+Category filters combine case, accent, and spacing variants, equivalent `&`/`+`/`and` separators, and known spellings such as Entrée/Entrees/Entrées.  Categories that differ only by size are grouped together.  Original category text stays in menu results.  Category exclusions use these same matching rules.
 
-Dates use the America/Los_Angeles time zone.  Old menus are labeled as old, not presented as today's offerings.  Only location choices are saved in local storage, with session storage as a fallback.  Menus stay in `menus.js`; search and sorting stay in memory.
+Focus the search box to pick from your six most-used searches, ranked by use with recent use breaking ties.  Suggestions narrow as you type.  A search counts when you leave the field, press Enter, open an item, or choose a suggestion, not on every keystroke.
+
+Searches and filter preferences are not sent to a server.  In fact, the page works directly from your local filesystem without an HTTP server.
+
+Dates use the America/Los_Angeles time zone.  Old menus are labeled as old, not presented as today's offerings.  Filter choices and frequent searches are saved in local storage, with session storage as a fallback.  Menus stay in `menus.js`; the current query and sorting stay in memory.
 
 ## Build and deploy
 
@@ -123,7 +127,7 @@ If Node.js is older than 22, `make setup-test` automatically installs Node.js 24
 
 On Linux, Playwright may also require system libraries; its `node node_modules/playwright/cli.js install-deps chromium webkit` command installs the supported dependencies and may need administrator privileges.  With the local runtime, prefix that command with `.tmp/node-runtime/node_modules/.bin/` so it uses the same Node.js.  Browser engines are stored under `.tmp/playwright`.  This setup is never invoked by a normal build.
 
-Browser tests run headless Chromium and WebKit against synthetic menus, including direct-file loading, static hosting, phrase search, sorting, location preferences, and the loading screen.  They emulate phone layouts, not an actual phone's software keyboard.
+Browser tests run headless Chromium and WebKit against synthetic menus, including direct-file loading, static hosting, phrase search, frequent searches, sorting, persistent filters, changing menus, and the loading screen.  They emulate phone layouts, not an actual phone's software keyboard.
 
 See [project.md](project.md) for implementation details and protocol limitations.
 

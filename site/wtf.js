@@ -2,7 +2,7 @@
  * What the Food - browser menu search and ordering handoff.
  *
  * Searches a generated menu snapshot without contacting the menu APIs.
- * Only location choices are persisted; search and sorting stay in memory.
+ * Filters and frequent searches stay in browser storage, never on a server.
  */
 "use strict";
 setTimeout(() => {
@@ -19,7 +19,12 @@ setTimeout(() => {
 		name: "Item",
 		price: "Price",
 	};
-	const storageKey = "what-the-food.locations.v1";
+	const storageKeys = {
+		disabled: "what-the-food.locations.v1",
+		vendors: "what-the-food.vendors.v1",
+		categories: "what-the-food.categories.v1",
+		searches: "what-the-food.searches.v1",
+	};
 	const collator = new Intl.Collator(undefined, {
 		numeric: true,
 		sensitivity: "base",
@@ -35,6 +40,52 @@ setTimeout(() => {
 			.normalize("NFD")
 			.replace(/[\u0300-\u036f]/g, "")
 			.toLowerCase();
+	const categoryText = (value) =>
+		value.normalize("NFKC")
+			.replace(/\s+/g, " ")
+			.trim()
+			.replace(/\s+\d+(?:\.\d+)?\s*(?:fl\.?\s*oz|oz|ml|l)$/i, "");
+	const categoryMatch = (value) =>
+		normalize(categoryText(value))
+			.replace(/[\u2018\u2019]/g, "'")
+			.replace(/\s+(?:&|\+|and)\s+/g, " + ");
+	const categoryAliases = new Map();
+	const categoryLabels = new Map();
+	// Exact category aliases, not broad spelling or singularization rules.
+	for (const [label, ...aliases] of [
+		["Entr\u00e9es", "Entr\u00e9e"],
+		["\u00c0 la carte"],
+		["Breakfast"],
+		["Chef's Table", "Chef Table"],
+		["Cold Drinks", "Cold Dinks"],
+		["Himalaya", "Himalayan"],
+		["Pizza", "Pizzas"],
+		["Sandwiches", "Half Sandwiches", "Whole Sandwiches"],
+		["Sandwiches + More"],
+		["Sides + Dessert"],
+		["Small Plates", "Small Plate"],
+		["Soups + Sides"],
+		["Teriyaki", "Teriayki"],
+		["Tea + Elixirs", "Tea + Elixers"],
+	]) {
+		const key = categoryMatch(label);
+		categoryLabels.set(key, label);
+		for (const name of [label, ...aliases])
+			categoryAliases.set(categoryMatch(name), key);
+	}
+	const categoryKey = (value) => {
+		const key = categoryMatch(value);
+		return categoryAliases.get(key) ?? key;
+	};
+	function registerCategory(value) {
+		const key = categoryKey(value);
+		if (!categoryLabels.has(key))
+			categoryLabels.set(
+				key,
+				categoryText(value).replace(/\s+(?:&|\+|and)\s+/gi, " + "),
+			);
+		return key;
+	}
 	const campusDay = () => {
 		const parts = Object.fromEntries(
 			dayFormatter.formatToParts(new Date()).map((p) => [p.type, p.value]),
@@ -47,11 +98,26 @@ setTimeout(() => {
 		selectedItem = null;
 	let preferences = {
 		disabled: [],
+		vendors: [],
+		categories: [],
+		searches: [],
 		field: "location",
 		ascending: true,
 		query: "",
 	};
 	let storageKind = "localStorage";
+	let filterMode = "locations";
+	let filterOptions = { locations: [], vendors: [], categories: [] };
+	let searchEdited = false;
+	const categoryName = (item) => item.category.split(" / ").at(-1);
+	const includedItem = (item) =>
+		!preferences.vendors.includes(item.vendor) &&
+		!preferences.categories.includes(categoryKey(categoryName(item)));
+	const searchIdentity = (query) =>
+		normalize(query)
+			.replace(/[\u201c\u201d]/g, '"')
+			.replace(/\s+/g, " ")
+			.trim();
 	const moneyFormats = new Map();
 	function money(item) {
 		if (!moneyFormats.has(item.currency))
@@ -66,7 +132,7 @@ setTimeout(() => {
 	}
 
 	//==============================================================================
-	// LOCATION STORAGE: Probe browser storage and fall back without blocking menus
+	// BROWSER STORAGE: Save preferences with a session-only fallback
 	//==============================================================================
 
 	function storageWarning(message) {
@@ -76,8 +142,8 @@ setTimeout(() => {
 	function openStorage(kind) {
 		try {
 			const storage = window[kind];
-			storage.setItem(storageKey + ".probe", "1");
-			storage.removeItem(storageKey + ".probe");
+			storage.setItem(storageKeys.disabled + ".probe", "1");
+			storage.removeItem(storageKeys.disabled + ".probe");
 			storageKind = kind;
 			return storage;
 		} catch (error) {
@@ -85,53 +151,126 @@ setTimeout(() => {
 			return null;
 		}
 	}
-	let locationStorage =
+	let preferenceStorage =
 		openStorage("localStorage") || openStorage("sessionStorage");
-	if (!locationStorage)
+	if (!preferenceStorage)
 		storageWarning(
-			"Location choices cannot be saved in this browser. Changes last only until this page is closed or reloaded.",
+			"Filters and frequent searches cannot be saved in this browser. Changes last only until this page is closed or reloaded.",
 		);
 	else if (storageKind === "sessionStorage")
 		storageWarning(
-			"Local storage is unavailable. Location choices will be saved for this browser session only.",
+			"Local storage is unavailable. Filters and frequent searches will be saved for this browser session only.",
 		);
-	try {
-		const saved = locationStorage && locationStorage.getItem(storageKey);
-		if (saved !== null) {
-			const disabled = JSON.parse(saved);
-			if (
-				!Array.isArray(disabled) ||
-				!disabled.every((id) => typeof id === "string")
-			) {
-				throw new Error("Invalid saved location choices");
-			}
-			preferences.disabled = disabled;
-		}
-	} catch (error) {
-		storageWarning(
-			"Saved location choices could not be read. All locations are enabled for this session.",
-		);
-		console.warn("Unable to read location choices:", error);
-	}
-	function saveLocations() {
-		if (!locationStorage) return;
+	for (const [field, key] of Object.entries(storageKeys)) {
 		try {
-			locationStorage.setItem(storageKey, JSON.stringify(preferences.disabled));
+			const saved = preferenceStorage && preferenceStorage.getItem(key);
+			if (saved != null) {
+				const value = JSON.parse(saved);
+				const valid =
+					Array.isArray(value) &&
+					(field === "searches"
+						? value.every((entry) =>
+							entry && typeof entry.query === "string" && entry.query.trim() &&
+							Number.isSafeInteger(entry.count) && entry.count > 0 &&
+							Number.isSafeInteger(entry.lastUsed) && entry.lastUsed > 0)
+						: value.every((id) => typeof id === "string"));
+				if (!valid) throw new Error(`Invalid saved ${field}`);
+				preferences[field] = field === "searches"
+					? value.slice(0, 50)
+					: field === "categories"
+						? [...new Set(value.map(registerCategory))]
+						: value;
+			}
 		} catch (error) {
-			console.warn("Unable to save location choices:", error);
-			locationStorage =
+			storageWarning(
+				"Some saved preferences could not be read. The affected filters or frequent searches have been reset.",
+			);
+			console.warn(`Unable to read ${key}:`, error);
+		}
+	}
+	function savePreferences() {
+		if (!preferenceStorage) return;
+		try {
+			for (const [field, key] of Object.entries(storageKeys)) {
+				const value = field === "categories"
+					? preferences.categories.map((id) => categoryLabels.get(id) ?? id)
+					: preferences[field];
+				preferenceStorage.setItem(key, JSON.stringify(value));
+			}
+		} catch (error) {
+			console.warn("Unable to save browser preferences:", error);
+			preferenceStorage =
 				storageKind === "localStorage" ? openStorage("sessionStorage") : null;
-			if (locationStorage) {
+			if (preferenceStorage) {
 				storageWarning(
-					"Local storage is unavailable. Location choices will be saved for this browser session only.",
+					"Local storage is unavailable. Filters and frequent searches will be saved for this browser session only.",
 				);
-				saveLocations();
+				savePreferences();
 			} else {
 				storageWarning(
-					"Location choices cannot be saved in this browser. Changes last only until this page is closed or reloaded.",
+					"Filters and frequent searches cannot be saved in this browser. Changes last only until this page is closed or reloaded.",
 				);
 			}
 		}
+	}
+
+	//==============================================================================
+	// FREQUENT SEARCHES: Count completed edits, not keystrokes or repeated blur
+	//==============================================================================
+
+	function hideSearches() {
+		$("search-history").hidden = true;
+		$("query").setAttribute("aria-expanded", "false");
+	}
+	function rememberSearch() {
+		if (!searchEdited) return;
+		searchEdited = false;
+		const query = preferences.query.replace(/\s+/g, " ").trim();
+		if (!query.replace(/["\u201c\u201d]/g, "").trim()) return;
+		const identity = searchIdentity(query);
+		let entry = preferences.searches.find(
+			(saved) => searchIdentity(saved.query) === identity,
+		);
+		const lastUsed =
+			Math.max(0, ...preferences.searches.map((saved) => saved.lastUsed)) + 1;
+		if (entry) {
+			entry.query = query;
+			entry.count++;
+			entry.lastUsed = lastUsed;
+		} else {
+			entry = { query, count: 1, lastUsed };
+			preferences.searches.push(entry);
+		}
+		// Retain a small candidate pool so new queries can become frequent searches.
+		preferences.searches.sort((a, b) => b.lastUsed - a.lastUsed);
+		preferences.searches = preferences.searches.slice(0, 50);
+		savePreferences();
+	}
+	function showSearches() {
+		const query = searchIdentity(preferences.query);
+		const entries = [...preferences.searches]
+			.sort((a, b) => b.count - a.count || b.lastUsed - a.lastUsed)
+			.filter((entry) => searchIdentity(entry.query).includes(query))
+			.slice(0, 6);
+		const fragment = document.createDocumentFragment();
+		for (const entry of entries) {
+			const button = document.createElement("button");
+			button.type = "button";
+			button.textContent = entry.query;
+			// Safari may blur the input before a tapped suggestion receives its click.
+			button.addEventListener("mousedown", (event) => event.preventDefault());
+			button.addEventListener("click", () => {
+				$("query").value = entry.query;
+				$("query").dispatchEvent(new Event("input", { bubbles: true }));
+				rememberSearch();
+				$("query").focus({ preventScroll: true });
+				hideSearches();
+			});
+			fragment.append(button);
+		}
+		$("search-suggestions").replaceChildren(fragment);
+		$("search-history").hidden = !entries.length;
+		$("query").setAttribute("aria-expanded", String(!!entries.length));
 	}
 	function orderingURL(item) {
 		const url = new URL(item.orderingURL);
@@ -264,12 +403,14 @@ setTimeout(() => {
 		selectedItem = null;
 	});
 
+	const filterPreference = () =>
+		filterMode === "locations" ? "disabled" : filterMode;
 	function updateAllLocations() {
-		const locations = data.locations.filter(
+		const locations = filterOptions[filterMode].filter(
 			(location) => location.status !== "no_ordering_url",
 		);
 		const enabled = locations.filter(
-			(location) => !preferences.disabled.includes(location.id),
+			(location) => !preferences[filterPreference()].includes(location.id),
 		).length;
 		$("all-locations").disabled = !locations.length;
 		$("all-locations").checked =
@@ -278,20 +419,32 @@ setTimeout(() => {
 	}
 	$("all-locations").addEventListener("change", () => {
 		const ids = new Set(
-			data.locations
+			filterOptions[filterMode]
 				.filter((location) => location.status !== "no_ordering_url")
 				.map((location) => location.id),
 		);
-		preferences.disabled = preferences.disabled.filter((id) => !ids.has(id));
-		if (!$("all-locations").checked) preferences.disabled.push(...ids);
-		saveLocations();
+		const field = filterPreference();
+		preferences[field] = preferences[field].filter((id) => !ids.has(id));
+		if (!$("all-locations").checked) preferences[field].push(...ids);
+		savePreferences();
 		renderLocations();
 		render();
 	});
+	for (const mode of document.querySelectorAll('input[name="filter-mode"]'))
+		mode.addEventListener("change", () => {
+			filterMode = mode.value;
+			renderLocations();
+		});
 
 	function renderLocations() {
+		if (!data) return;
 		const fragment = document.createDocumentFragment();
-		for (const location of data.locations) {
+		const field = filterPreference();
+		$("filter-description").textContent =
+			filterMode === "categories"
+				? "Choose category names to show across all vendors and locations."
+				: `Choose which ${filterMode} to show.`;
+		for (const location of filterOptions[filterMode]) {
 			const row = document.createElement("div");
 			row.className = "location-row";
 			const label = document.createElement(
@@ -301,32 +454,40 @@ setTimeout(() => {
 			const name = document.createElement("span");
 			name.textContent = location.name;
 			label.append(name);
-			const disabled = preferences.disabled.includes(location.id);
+			const disabled = preferences[field].includes(location.id);
 			if (location.status !== "no_ordering_url") {
 				const toggle = document.createElement("input");
 				toggle.type = "checkbox";
 				toggle.checked = !disabled;
 				toggle.setAttribute("role", "switch");
 				toggle.addEventListener("change", () => {
-					preferences.disabled = preferences.disabled.filter(
+					preferences[field] = preferences[field].filter(
 						(id) => id !== location.id,
 					);
-					if (!toggle.checked) preferences.disabled.push(location.id);
+					if (!toggle.checked) preferences[field].push(location.id);
 					updateAllLocations();
-					saveLocations();
+					savePreferences();
 					render();
 				});
 				label.append(toggle);
 			}
-			const status = document.createElement("p");
-			status.className = `location-status${location.status === "error" ? " failed" : ""}`;
-			status.textContent =
-				location.status === "no_ordering_url"
-					? "No ordering link in the directory."
-					: location.status === "error"
-						? `Fetch failed: ${location.error}`
-						: `${location.items.length.toLocaleString()} saved items${location.notices.length ? `\n${location.notices.join("\n")}` : ""}`;
-			row.append(label, status);
+			row.append(label);
+			if (filterMode === "locations") {
+				const status = document.createElement("p");
+				status.className = `location-status${location.status === "error" ? " failed" : ""}`;
+				status.textContent =
+					location.status === "no_ordering_url"
+						? "No ordering link in the directory."
+						: location.status === "error"
+							? `Fetch failed: ${location.error}`
+							: `${location.items.length.toLocaleString()} saved items${location.notices.length ? `\n${location.notices.join("\n")}` : ""}`;
+				row.append(status);
+			} else if (location.absent) {
+				const status = document.createElement("p");
+				status.className = "location-status";
+				status.textContent = "Not in this snapshot.";
+				row.append(status);
+			}
 			fragment.append(row);
 		}
 		$("location-list").replaceChildren(fragment);
@@ -378,7 +539,14 @@ setTimeout(() => {
 		const stale = data.campusDay !== campusDay();
 		$("data-status").textContent =
 			`${data.campusDay} \u00b7 ${enabled.length} locations enabled${failed ? ` \u00b7 ${failed} failed` : ""}${notices ? ` \u00b7 ${notices} notices` : ""}`;
-		$("locations-button").title = `${enabled.length} locations enabled`;
+		for (const field of ["vendors", "categories"]) {
+			const hidden = filterOptions[field].filter(
+				(option) => preferences[field].includes(option.id),
+			).length;
+			if (hidden)
+				$("data-status").textContent += ` \u00b7 ${hidden} ${field} hidden`;
+		}
+		$("locations-button").title = `Filters: ${$("data-status").textContent}`;
 		const warnings = [];
 		if (stale)
 			warnings.push(
@@ -389,7 +557,7 @@ setTimeout(() => {
 				(l) => l.status === "error",
 			).length;
 			warnings.push(
-				`Partial snapshot: ${allFailed} ${allFailed === 1 ? "location failed" : "locations failed"} to load. See Locations for details.`,
+				`Partial snapshot: ${allFailed} ${allFailed === 1 ? "location failed" : "locations failed"} to load. See Filters for details.`,
 			);
 		}
 		$("data-warning").textContent = warnings.join("  ");
@@ -429,7 +597,7 @@ setTimeout(() => {
 			(l) =>
 				l.status !== "no_ordering_url" && !preferences.disabled.includes(l.id),
 		);
-		const items = enabled.flatMap((l) => l.items);
+		const items = enabled.flatMap((l) => l.items).filter(includedItem);
 		// Every term must match; a quoted phrase cannot span multiple item fields.
 		const terms = Array.from(
 			preferences.query
@@ -460,12 +628,14 @@ setTimeout(() => {
 				? "No locations enabled"
 				: preferences.query.trim()
 					? "No matching items"
-					: "No menus available";
+					: preferences.vendors.length || preferences.categories.length
+						? "No menus match your filters"
+						: "No menus available";
 			$("empty-message").textContent = !enabled.length
 				? "Enable locations to browse their saved menus."
 				: preferences.query.trim()
-					? "Try another search or enable more locations."
-					: "Check Locations for closed sites, unavailable menus, or fetch errors.";
+					? "Try another search or adjust your filters."
+					: "Check Filters for disabled choices, closed sites, unavailable menus, or fetch errors.";
 		}
 		appendRows();
 	}
@@ -474,7 +644,39 @@ setTimeout(() => {
 	$("query").addEventListener("input", () => {
 		$("clear-query").disabled = !$("query").value;
 		preferences.query = $("query").value;
+		searchEdited = true;
 		render();
+		if (document.activeElement === $("query")) showSearches();
+	});
+	$("query").addEventListener("focus", showSearches);
+	$("query").addEventListener("blur", (event) => {
+		if (!event.relatedTarget || !event.relatedTarget.closest("#search-history"))
+			rememberSearch();
+	});
+	$("query").closest(".search").addEventListener("focusout", (event) => {
+		if (!event.relatedTarget || !event.currentTarget.contains(event.relatedTarget)) {
+			rememberSearch();
+			hideSearches();
+		}
+	});
+	$("query").closest(".search").addEventListener("keydown", (event) => {
+		if (event.key === "Escape") {
+			hideSearches();
+			$("query").focus({ preventScroll: true });
+			hideSearches();
+			event.preventDefault();
+		} else if (event.key === "ArrowDown" && event.target === $("query")) {
+			showSearches();
+			const first = $("search-suggestions").querySelector("button");
+			if (first) {
+				first.focus();
+				event.preventDefault();
+			}
+		} else if (event.key === "Enter" && event.target === $("query")) {
+			rememberSearch();
+			hideSearches();
+			event.preventDefault();
+		}
 	});
 	$("clear-query").onclick = () => {
 		$("query").value = "";
@@ -567,6 +769,7 @@ setTimeout(() => {
 	$("menu-rows").addEventListener("click", (event) => {
 		const row = event.target.closest("tr[data-index]");
 		if (!row) return;
+		rememberSearch();
 		selectedItem = matches[Number(row.dataset.index)];
 		for (const key of ["location", "vendor", "category", "description"])
 			$("detail-" + key).textContent = selectedItem[key];
@@ -588,7 +791,7 @@ setTimeout(() => {
 			);
 			updateStatus(
 				enabled,
-				enabled.reduce((total, l) => total + l.items.length, 0),
+				enabled.reduce((total, l) => total + l.items.filter(includedItem).length, 0),
 			);
 		}
 		updateOrdering();
@@ -605,6 +808,25 @@ setTimeout(() => {
 		if (typeof menuData === "undefined")
 			throw new Error("menus.js is missing, blocked, or invalid");
 		data = validate(menuData);
+		const items = data.locations.flatMap((location) => location.items);
+		const options = (values, excluded) => [...new Set([...values, ...excluded])]
+			.sort(collator.compare)
+			.map((name) => ({
+				id: name,
+				name: name || "(Uncategorized)",
+				absent: !values.includes(name),
+			}));
+		filterOptions = {
+			locations: data.locations,
+			vendors: options(items.map((item) => item.vendor), preferences.vendors),
+			categories: options(
+				items.map((item) => registerCategory(categoryName(item))),
+				preferences.categories,
+			).map((option) => ({
+				...option,
+				name: categoryLabels.get(option.id) || "(Uncategorized)",
+			})),
+		};
 		for (const location of data.locations)
 			for (const item of location.items) {
 				item.searchFields = [

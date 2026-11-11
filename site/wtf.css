@@ -321,6 +321,7 @@ footer {
 		max(1rem, env(safe-area-inset-left));
 }
 .search {
+	position: relative;
 	flex: 1 1 13rem;
 	display: flex;
 	align-items: center;
@@ -345,6 +346,34 @@ footer {
 	border: 0;
 	background: none;
 	color: var(--muted);
+}
+.search-history {
+	position: absolute;
+	bottom: calc(100% + 0.5rem);
+	left: 0;
+	right: 0;
+	z-index: 2;
+	max-height: min(24rem, 50dvh);
+	overflow: auto;
+	padding: 0.5rem;
+	border: 1px solid var(--line);
+	border-radius: 0.7rem;
+	background: var(--surface);
+	box-shadow: var(--shadow);
+}
+.search-history p {
+	padding: 0.25rem 0.5rem;
+	font-size: 0.85rem;
+}
+.search-history button {
+	display: block;
+	width: 100%;
+	text-align: left;
+	overflow-wrap: anywhere;
+	color: var(--text);
+}
+.search-history button:hover {
+	background: var(--tint);
 }
 .sort-controls {
 	display: flex;
@@ -380,6 +409,47 @@ dialog::backdrop {
 	top: 0;
 	background: var(--surface);
 	z-index: 1;
+}
+#locations-dialog .dialog-header {
+	flex-wrap: wrap;
+}
+.filter-modes {
+	display: flex;
+	flex-basis: 100%;
+	gap: 0.25rem;
+	margin: 0;
+	padding: 0;
+	border: 0;
+}
+.filter-modes label {
+	position: relative;
+	flex: 1;
+	display: grid;
+	place-items: center;
+	min-height: 44px;
+	padding: 0.35rem;
+	border: 1px solid var(--line);
+	border-radius: 0.65rem;
+	font-size: 0.85rem;
+	cursor: pointer;
+}
+.filter-modes label:has(:checked) {
+	background: var(--tint);
+	color: var(--accent);
+	font-weight: 650;
+}
+.filter-modes label:focus-within {
+	outline: 3px solid var(--accent);
+	outline-offset: 2px;
+}
+.filter-modes input {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	margin: 0;
+	opacity: 0;
+	cursor: pointer;
 }
 .dialog-body {
 	padding: 1.25rem;

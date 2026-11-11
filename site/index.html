@@ -57,8 +57,8 @@
 			<button
 				id="locations-button"
 				class="icon-button"
-				aria-label="Locations"
-				title="Locations"
+				aria-label="Filters"
+				title="Filters"
 			>
 				<svg viewBox="0 0 24 24" aria-hidden="true">
 					<path d="M3 6h18M6 12h12M9 18h6" />
@@ -79,7 +79,7 @@
 			<span id="summary" role="status" aria-live="polite"></span>
 			<button
 				id="data-status"
-				aria-label="Menu data status and locations"
+				aria-label="Menu data status and filters"
 			></button>
 		</div>
 		<p id="data-warning" class="warning" hidden></p>
@@ -89,7 +89,7 @@
 				<p id="empty-message" class="muted">
 					Reading menus.js beside this page.
 				</p>
-				<button id="empty-locations" hidden>Choose locations</button>
+				<button id="empty-locations" hidden>Choose filters</button>
 			</div>
 			<table id="menu-table" hidden aria-label="Matching menu items">
 				<thead>
@@ -119,6 +119,8 @@
 					title='Use quotes for phrases: "Food hall 6" chicken'
 					autocomplete="off"
 					spellcheck="false"
+					aria-controls="search-history"
+					aria-expanded="false"
 				/>
 				<button
 					id="clear-query"
@@ -133,6 +135,10 @@
 						<path d="m9 9 6 6m0-6-6 6" />
 					</svg>
 				</button>
+				<div id="search-history" class="search-history" hidden>
+					<p class="muted">Frequent searches</p>
+					<div id="search-suggestions" role="group" aria-label="Frequent searches"></div>
+				</div>
 			</div>
 			<div class="sort-controls">
 				<label for="sort-field">Sort</label>
@@ -154,15 +160,21 @@
 
 		<dialog id="locations-dialog" aria-labelledby="locations-title">
 			<div class="dialog-header">
-				<h2 id="locations-title">Locations</h2>
+				<h2 id="locations-title">Filters</h2>
 				<label class="location-label">
 					Select All
 					<input id="all-locations" type="checkbox" disabled />
 				</label>
 				<button data-close>Done</button>
+				<fieldset class="filter-modes">
+					<legend class="sr-only">Filter group</legend>
+					<label><input type="radio" name="filter-mode" value="locations" checked />Locations</label>
+					<label><input type="radio" name="filter-mode" value="vendors" />Vendors</label>
+					<label><input type="radio" name="filter-mode" value="categories" />Categories</label>
+				</fieldset>
 			</div>
 			<div class="dialog-body">
-				<p class="muted">Choose which locations to show.</p>
+				<p id="filter-description" class="muted">Choose which locations to show.</p>
 				<p id="preferences-warning" class="warning" hidden></p>
 				<p id="generated-at" class="muted"></p>
 				<div id="location-list"></div>
@@ -213,51 +225,47 @@
 			</div>
 			<div class="dialog-body">
 				<p>
-					WTF is a common phrase when we realize that something isn't working as
-					it should (or could).
+					Search campus menus in one place.  Select an item for details and a
+					link to the provider's ordering website.
 				</p>
 				<p>
-					Campus food services have separate websites, vendors move around, and
-					menus change daily. The lack of a unified search was a "What the
-					Food?" moment for us.
+					Every search word must match.  Use quotes for phrases, such as
+					"Food hall 6" chicken.  Matching ignores case and accents.
 				</p>
 				<p>
-					This page searches a snapshot produced by the Rust scraper. It never
-					contacts the menu APIs. To update the menus, run the scraper again,
-					replace menus.js, and reload this page.
-				</p>
-				<p>
-					Search requires every word to match. Use double quotes for a phrase
-					within one field, such as "Food hall 6" chicken. Matching ignores case
-					and accents; results keep your chosen sort order.
-				</p>
-				<p>
-					Use the Locations button
+					Use the Filters button
 					<button
 						id="about-locations-button"
 						type="button"
 						class="inline-icon"
-						aria-label="Locations"
-						title="Locations"
+						aria-label="Filters"
+						title="Filters"
 					>
 						<svg viewBox="0 0 24 24" aria-hidden="true">
 							<path d="M3 6h18M6 12h12M9 18h6" />
 						</svg>
 					</button>
-					to choose which locations to include in searches and results. Your
-					choices are stored locally in your browser. Nothing is sent to the
-					server.
+					to choose locations, vendors, and categories.  Locations select
+					buildings and food halls; vendors and categories, such as Bakery or
+					Sides, apply everywhere.  All three filters work together.
+				</p>
+				<p>
+					Exclusions are remembered even when menus change.  New vendors and
+					categories are included by default.
+				</p>
+				<p>
+					Focus the search box to pick from your six most-used searches.
+					Filters and frequent searches stay in your browser; nothing is sent
+					to a server.
+				</p>
+				<p class="muted">
+					Menus are a saved snapshot, dated in Pacific time.  Old or incomplete
+					menus are labeled.  Reload checks for updated data.
 				</p>
 				<p>
 					Source code in the
 					<a href="https://github.com/MichaelSinz/WhatTheFood">WhatTheFood</a>
 					GitHub repository.
-				</p>
-				<p class="muted">
-					Dates use the America/Los_Angeles time zone. Old menus are labeled as
-					old, not presented as today's offerings. Only location choices are
-					saved in local storage, with session storage as a fallback. Menus stay
-					in menus.js; search and sorting stay in memory.
 				</p>
 				<center>
 					<img src="last-published.svg" alt="Menu Publication Date"/>

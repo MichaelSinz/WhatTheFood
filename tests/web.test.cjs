@@ -227,7 +227,8 @@ for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]]) {
       assert.match(await page.locator("#summary").innerText(), /0 matches/);
       const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), storageKey);
       assert.deepEqual(saved, ["cafe10.buy-ondemand.com"]);
-      assert.deepEqual(await page.evaluate(() => Object.keys(localStorage)), [storageKey]);
+      assert.deepEqual(await page.evaluate(() => Object.keys(localStorage).sort()),
+        [storageKey, "what-the-food.vendors.v1", "what-the-food.categories.v1", "what-the-food.searches.v1"].sort());
       await page.reload();
       await page.locator("#loading-screen").waitFor({ state: "hidden" });
       assert.equal(await page.locator("#query").inputValue(), "");
@@ -306,6 +307,253 @@ for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]]) {
       assert.match(await page.locator("#summary").innerText(), /208 matches/);
       await page.locator("#locations-button").click();
       assert.deepEqual(await state(), [true, false]);
+    } finally { await browser.close(); await fs.rm(fixture.directory, { recursive: true }); }
+  });
+
+  test(`${name}: frequent searches rank completed queries and support touch and keyboard`, async () => {
+    const fixture = await site(snapshot());
+    const browser = await engine.launch({ headless: true });
+    try {
+      const page = await browser.newPage({ viewport: { width: 375, height: 667 }, hasTouch: true });
+      const requests = [], errors = [];
+      page.on("request", request => requests.push(request.url()));
+      page.on("pageerror", error => errors.push(error.message));
+      await page.goto(fixture.url);
+      await page.locator("#loading-screen").waitFor({ state: "hidden" });
+      const query = page.locator("#query");
+      const suggestions = page.locator("#search-suggestions button");
+      const saved = () => page.evaluate(() => JSON.parse(localStorage.getItem("what-the-food.searches.v1")));
+      for (const text of ["Soup", "Fish", "Cafe", "Lunch", "Entrees", "Vendor", "Dish"]) {
+        await query.fill(text);
+        await query.press("Enter");
+        await query.blur();
+      }
+      assert.equal((await saved()).length, 7);
+      assert((await saved()).every(entry => entry.count === 1), "Enter and blur count the same edit only once");
+      for (const text of ["   ", '""']) {
+        await query.fill(text);
+        await query.press("Enter");
+        await query.blur();
+      }
+      assert.equal((await saved()).length, 7, "Empty queries are not saved");
+      await query.fill("SOUP");
+      await query.blur();
+      await query.fill("");
+      assert.deepEqual(await suggestions.allTextContents(), ["SOUP", "Dish", "Vendor", "Entrees", "Lunch", "Cafe"]);
+      assert.equal(await query.getAttribute("aria-expanded"), "true");
+      await suggestions.getByText("SOUP", { exact: true }).tap();
+      assert.equal(await query.inputValue(), "SOUP");
+      assert.match(await page.locator("#summary").textContent(), /1 match/);
+      assert.equal(await page.locator("#search-history").isVisible(), false);
+      assert.equal((await saved()).find(entry => entry.query === "SOUP").count, 3);
+      await query.blur();
+      assert.equal((await saved()).find(entry => entry.query === "SOUP").count, 3);
+      await query.fill("so");
+      await suggestions.getByText("SOUP", { exact: true }).tap();
+      assert.equal(await query.inputValue(), "SOUP");
+      assert.equal((await saved()).some(entry => entry.query === "so"), false, "Tapping a suggestion does not save a fragment");
+      await query.fill("di");
+      assert.deepEqual(await suggestions.allTextContents(), ["Dish"]);
+      await query.press("ArrowDown");
+      await page.keyboard.press("Enter");
+      assert.equal(await query.inputValue(), "Dish");
+      assert.equal((await saved()).some(entry => entry.query === "di"), false, "Choosing a suggestion does not save a fragment");
+      await query.press("ArrowDown");
+      await page.keyboard.press("Escape");
+      assert.equal(await page.locator("#search-history").isVisible(), false);
+      assert.equal(await query.evaluate(input => input === document.activeElement), true);
+      await page.reload();
+      await page.locator("#loading-screen").waitFor({ state: "hidden" });
+      assert.equal(await query.inputValue(), "", "The active query is not restored");
+      await query.tap();
+      assert.deepEqual(await suggestions.allTextContents(), ["SOUP", "Dish", "Vendor", "Entrees", "Lunch", "Cafe"]);
+      await page.setViewportSize({ width: 375, height: 320 });
+      const box = await page.locator("#search-history").boundingBox();
+      assert(box.y >= 0 && box.y + box.height <= 320, "Suggestions fit above the search field with a reduced viewport");
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      assert(requests.every(url => url.startsWith("file:")), "History never makes network requests");
+      assert.deepEqual(errors, []);
+    } finally { await browser.close(); await fs.rm(fixture.directory, { recursive: true }); }
+  });
+
+  test(`${name}: vendor and category exclusions combine and survive changing daily menus`, async () => {
+    const data = snapshot();
+    const first = data.locations[0].items[0], second = data.locations[1].items[0];
+    data.locations[0].items = [
+      { ...first, vendor: "Moving cart", category: "Lunch / Sides" },
+      { ...first, id: first.id + "bakery", name: "Bread", vendor: "Anchor", category: "Breakfast / Bakery" },
+    ];
+    data.locations[1].items = [
+      { ...second, vendor: "Moving cart", category: "Dinner / Sides" },
+      { ...second, id: second.id + "coffee", name: "Coffee", vendor: "Coffee", category: "Drinks / Hot Coffee" },
+    ];
+    const fixture = await site(data);
+    const browser = await engine.launch({ headless: true });
+    try {
+      const page = await browser.newPage({ viewport: { width: 375, height: 667 } });
+      const errors = [];
+      page.on("pageerror", error => errors.push(error.message));
+      await page.clock.install({ time: new Date("2026-10-27T19:00:00Z") });
+      await page.goto(fixture.url);
+      await page.locator("#loading-screen").waitFor({ state: "hidden" });
+      await page.locator("#locations-button").click();
+      await page.getByRole("radio", { name: "Categories", exact: true }).check();
+      assert.deepEqual(await page.getByRole("switch").evaluateAll(inputs =>
+        inputs.map(input => input.parentElement.textContent)), ["Bakery", "Hot Coffee", "Sides"]);
+      await page.getByRole("switch", { name: "Sides", exact: true }).uncheck();
+      assert.match(await page.locator("#summary").textContent(), /2 matches/);
+      await page.getByRole("switch", { name: "Sides", exact: true }).check();
+      await page.getByRole("radio", { name: "Vendors", exact: true }).check();
+      assert.equal(await page.getByRole("switch").count(), 3, "Duplicate vendor names are grouped across locations");
+      await page.getByRole("switch", { name: "Moving cart", exact: true }).uncheck();
+      assert.match(await page.locator("#summary").textContent(), /2 matches/);
+      await page.getByRole("radio", { name: "Categories", exact: true }).check();
+      assert.equal(await page.getByRole("switch", { name: "Sides", exact: true }).isChecked(), true,
+        "Vendor exclusions do not hide or alter category choices");
+      await page.getByRole("switch", { name: "Bakery", exact: true }).uncheck();
+      assert.match(await page.locator("#summary").textContent(), /1 match/);
+      await page.clock.setSystemTime(new Date("2026-10-28T07:01:00Z"));
+      await page.clock.runFor(1000);
+      assert.match(await page.locator("#summary").textContent(), /1 match \/ 1 items/,
+        "Clock updates preserve the filtered item total");
+      await page.getByRole("radio", { name: "Locations", exact: true }).check();
+      await page.getByRole("switch", { name: "Cafe 10", exact: true }).uncheck();
+      assert.match(await page.locator("#summary").textContent(), /0 matches/);
+      await page.reload();
+      await page.locator("#loading-screen").waitFor({ state: "hidden" });
+      assert.match(await page.locator("#empty-title").textContent(), /filters/);
+      const nextDay = snapshot();
+      nextDay.locations[0].items = [{ ...first, vendor: "New vendor", category: "Lunch / New category" }];
+      nextDay.locations[1].items = [data.locations[1].items[1]];
+      await fs.writeFile(path.join(fixture.directory, "menus.js"), `const menuData = ${JSON.stringify(nextDay)};\n`);
+      await page.reload();
+      await page.locator("#loading-screen").waitFor({ state: "hidden" });
+      assert.match(await page.locator("#summary").textContent(), /1 match/, "New names are included by default");
+      await page.locator("#locations-button").click();
+      await page.getByRole("radio", { name: "Vendors", exact: true }).check();
+      assert.equal(await page.getByRole("switch", { name: "Moving cart", exact: true }).isChecked(), false);
+      assert.equal(await page.getByRole("switch", { name: "New vendor", exact: true }).isChecked(), true);
+      assert.match(await page.locator("#location-list").textContent(), /Not in this snapshot/);
+      await page.getByRole("radio", { name: "Categories", exact: true }).check();
+      assert.equal(await page.getByRole("switch", { name: "Bakery", exact: true }).isChecked(), false);
+      assert.equal(await page.getByRole("switch", { name: "New category", exact: true }).isChecked(), true);
+      // Saving a different filter set must not prune exclusions missing from today's data.
+      await page.getByRole("switch", { name: "New category", exact: true }).uncheck();
+      await page.getByRole("switch", { name: "New category", exact: true }).check();
+      await fs.writeFile(path.join(fixture.directory, "menus.js"), `const menuData = ${JSON.stringify(data)};\n`);
+      await page.reload();
+      await page.locator("#loading-screen").waitFor({ state: "hidden" });
+      assert.match(await page.locator("#summary").textContent(), /0 matches/, "Returning vendors and categories remain excluded");
+      await page.locator("#locations-button").click();
+      await page.locator("#all-locations").check();
+      assert.match(await page.locator("#summary").textContent(), /1 match/);
+      await page.getByRole("radio", { name: "Vendors", exact: true }).check();
+      await page.locator("#all-locations").check();
+      assert.match(await page.locator("#summary").textContent(), /3 matches/);
+      await page.getByRole("radio", { name: "Categories", exact: true }).check();
+      assert.equal(await page.getByRole("switch", { name: "Bakery", exact: true }).isChecked(), false);
+      await page.locator("#all-locations").check();
+      assert.match(await page.locator("#summary").textContent(), /4 matches/);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      assert.deepEqual(errors, []);
+    } finally { await browser.close(); await fs.rm(fixture.directory, { recursive: true }); }
+  });
+
+  test(`${name}: category aliases share filters and normalize saved exclusions across menu days`, async () => {
+    const groups = [
+      ["Entr\u00e9es", ["Entrees", "Entr\u00e9e", "Entr\u00e9es"]],
+      ["\u00c0 la carte", ["A La Carte", "\u00c0 la carte"]],
+      ["Breakfast", ["Breakfast", "Breakfast ", "BREAKFAST", "\u00a0Breakfast\t"]],
+      ["Chef's Table", ["Chef Table", "Chef's Table", "Chef\u2019s Table"]],
+      ["Cold Drinks", ["Cold Dinks", "Cold Drinks"]],
+      ["Himalaya", ["Himalaya", "Himalayan"]],
+      ["Pizza", ["Pizza", "Pizzas"]],
+      ["Sandwiches", ["Sandwiches", "Half Sandwiches", "Whole Sandwiches"]],
+      ["Sandwiches + More", ["Sandwiches & More", "Sandwiches + More"]],
+      ["Sides + Dessert", ["Sides & Dessert", "Sides + Dessert"]],
+      ["Small Plates", ["Small Plate", "Small Plates"]],
+      ["Soups + Sides", ["Soups & Sides", "Soups + Sides", "Soups and Sides"]],
+      ["Teriyaki", ["Teriayki", "Teriyaki", "Teriyaki "]],
+      ["Tea + Elixirs", ["Tea + Elixers", "Tea + Elixirs"]],
+      ["Burgers", ["Burgers "]],
+      ["Chicken", ["Chicken "]],
+      ["Dogs", ["Dogs "]],
+      ["New Category", ["New Category", "NEW CATEGORY ", "Ne\u0301w  Category"]],
+      ["Matcha Series", ["Matcha Series 16oz", "Matcha Series 20oz", "Matcha Series 16 OZ"]],
+      ["Milk Tea Series", ["Milk Tea Series 16oz", "Milk Tea Series 20oz"]],
+      ["Famous Series", ["Famous Series 16oz", "Famous Series 20oz"]],
+      ["Nitro Tea Series", ["Nitro Tea Series 16oz", "Nitro Tea Series 20oz"]],
+      ["Seasonal Options", ["Seasonal Options 16oz", "Seasonal Options 20oz"]],
+      ["Specialty Coffee Series", ["Specialty Coffee Series 16oz", "Specialty Coffee Series 20oz"]],
+      ["Iced Tea", ["Iced Tea 12 fl. oz", "Iced Tea 500ml", "Iced Tea 0.5L"]],
+    ];
+    const distinct = [
+      "Hot Breakfast", "Breakfast - Available All Day", "Entr\u00e9es + Sides",
+      "Pizza By The Slice", "Signature Sandwiches",
+      "Watercress Entrees", "Large Plate", "Specialty Coffee Series 2", "16oz",
+    ];
+    const categories = [...groups.flatMap(([, variants]) => variants), ...distinct];
+    const data = snapshot();
+    const first = data.locations[0].items[0];
+    data.locations[0].items = categories.map((category, index) => ({
+      ...first, id: first.id + index, name: `Variant ${index}`, category: `Menu / ${category}`,
+    }));
+    data.locations[1].items = [];
+    const fixture = await site(data);
+    const browser = await engine.launch({ headless: true });
+    try {
+      const page = await browser.newPage({ viewport: { width: 375, height: 667 } });
+      const errors = [];
+      page.on("pageerror", error => errors.push(error.message));
+      await page.goto(fixture.url);
+      await page.locator("#loading-screen").waitFor({ state: "hidden" });
+      await page.locator("#locations-button").click();
+      await page.getByRole("radio", { name: "Categories", exact: true }).check();
+      assert.equal(await page.getByRole("switch").count(), groups.length + distinct.length);
+      for (const [label, variants] of groups) {
+        const toggle = page.getByRole("switch", { name: label, exact: true });
+        assert.equal(await toggle.count(), 1, label);
+        await toggle.uncheck();
+        assert.equal(await page.locator("tbody tr").count(), categories.length - variants.length, label);
+        await toggle.check();
+      }
+      for (const label of distinct)
+        assert.equal(await page.getByRole("switch", { name: label, exact: true }).isChecked(), true, label);
+      await page.locator("#locations-dialog [data-close]").click();
+      await page.getByRole("button", { name: "Variant 0", exact: true }).click();
+      assert.equal(await page.locator("#detail-category").textContent(), "Menu / Entrees",
+        "Provider category text remains unchanged");
+      await page.locator("#detail-dialog [data-close]").click();
+      await page.evaluate(() => localStorage.setItem("what-the-food.categories.v1", JSON.stringify([
+        "Entr\u00e9e", "Entrees", "\u00a0Breakfast ", "Teriayki", "Missing\u00a0  Category",
+        "Matcha Series 16oz", "Matcha Series 20oz", "Milk Tea Series 16oz",
+        "Half Sandwiches", "Whole Sandwiches",
+      ])));
+      await page.reload();
+      await page.locator("#loading-screen").waitFor({ state: "hidden" });
+      assert.equal(await page.locator("tbody tr").count(), categories.length - 18,
+        "Earlier spellings and duplicate exclusions use the current normalization on load");
+      await page.locator("#locations-button").click();
+      await page.getByRole("radio", { name: "Categories", exact: true }).check();
+      assert.equal(await page.getByRole("switch", { name: "Entr\u00e9es", exact: true }).isChecked(), false);
+      assert.equal(await page.getByRole("switch", { name: "Missing Category", exact: true }).isChecked(), false);
+      await page.getByRole("switch", { name: "Pizza", exact: true }).uncheck();
+      assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem("what-the-food.categories.v1"))),
+        ["Entr\u00e9es", "Breakfast", "Teriyaki", "Missing Category", "Matcha Series", "Milk Tea Series", "Sandwiches", "Pizza"]);
+      data.locations[0].items = [
+        "ENTR\u00c9E", "bre\u0301akfast\t", "Teriayki\u00a0", "Missing CATEGORY", "PIZZAS",
+        "MATCHA SERIES 24 oz", "Milk Tea Series 500ml", "Sandwiches", "HALF SANDWICHES", "Brand new category",
+      ].map((category, index) => ({ ...first, id: first.id + index, name: `Tomorrow ${index}`, category: `New menu / ${category}` }));
+      await fs.writeFile(path.join(fixture.directory, "menus.js"), `const menuData = ${JSON.stringify(data)};\n`);
+      await page.reload();
+      await page.locator("#loading-screen").waitFor({ state: "hidden" });
+      assert.equal(await page.locator("tbody tr").count(), 1, "Exclusions match new spellings on later days");
+      assert.equal(await page.locator("tbody .item-button").textContent(), "Tomorrow 9");
+      await page.locator("#locations-button").click();
+      await page.getByRole("radio", { name: "Categories", exact: true }).check();
+      await page.getByRole("switch", { name: "Entr\u00e9es", exact: true }).check();
+      assert.equal(await page.locator("tbody tr").count(), 2);
+      assert.deepEqual(errors, []);
     } finally { await browser.close(); await fs.rm(fixture.directory, { recursive: true }); }
   });
 
@@ -399,11 +647,35 @@ test("session storage fallback, blocked storage, partial/stale/missing/invalid d
     assert.match(await page.locator("#preferences-warning").innerText(), /session only/);
     await page.getByRole("switch", { name: "Cafe 10", exact: true }).uncheck();
     assert.match(await page.locator("#location-list").innerText(), /HTTP 403/);
+    await page.getByRole("radio", { name: "Vendors", exact: true }).check();
+    await page.getByRole("switch", { name: "Caf\u00e9 Vendor", exact: true }).uncheck();
+    await page.getByRole("radio", { name: "Categories", exact: true }).check();
+    await page.getByRole("switch", { name: "Entr\u00e9es", exact: true }).uncheck();
+    await page.locator("#locations-dialog [data-close]").click();
+    await page.locator("#query").fill("soup");
+    await page.locator("#query").press("Enter");
     await page.reload();
     await page.locator("#loading-screen").waitFor({ state: "hidden" });
     assert.deepEqual(await page.evaluate(key => JSON.parse(sessionStorage.getItem(key)), storageKey), ["cafe10.buy-ondemand.com"]);
-    assert.match(await page.locator("#summary").innerText(), /207 matches/);
+    assert.deepEqual(await page.evaluate(() => JSON.parse(sessionStorage.getItem("what-the-food.vendors.v1"))), ["Caf\u00e9 Vendor"]);
+    assert.deepEqual(await page.evaluate(() => JSON.parse(sessionStorage.getItem("what-the-food.categories.v1"))), ["Entr\u00e9es"]);
+    assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem("what-the-food.searches.v1"))[0].query), "soup");
+    assert.match(await page.locator("#summary").innerText(), /0 matches/);
     await context.close();
+    const corrupt = await browser.newContext();
+    await corrupt.addInitScript(key => {
+      localStorage.setItem(key, JSON.stringify(["cafe10.buy-ondemand.com"]));
+      localStorage.setItem("what-the-food.vendors.v1", "{}");
+      localStorage.setItem("what-the-food.searches.v1", JSON.stringify([{ query: "soup", count: "bad" }]));
+    }, storageKey);
+    const corruptPage = await corrupt.newPage();
+    await corruptPage.goto(fixture.url);
+    await corruptPage.locator("#loading-screen").waitFor({ state: "hidden" });
+    assert.match(await corruptPage.locator("#summary").textContent(), /207 matches/,
+      "Invalid new preferences do not discard existing location exclusions");
+    await corruptPage.locator("#locations-button").click();
+    assert.match(await corruptPage.locator("#preferences-warning").textContent(), /could not be read/);
+    await corrupt.close();
     const blocked = await browser.newContext();
     await blocked.addInitScript(() => {
       for (const kind of ["localStorage", "sessionStorage"]) Object.defineProperty(window, kind, {
@@ -417,6 +689,10 @@ test("session storage fallback, blocked storage, partial/stale/missing/invalid d
     await blockedPage.locator("#loading-screen").waitFor({ state: "hidden" });
     assert.match(await blockedPage.locator("#summary").innerText(), /208 matches/);
     assert.equal(await blockedPage.locator("#preferences-warning").isVisible(), false);
+    await blockedPage.locator("#query").fill("soup");
+    await blockedPage.locator("#query").press("Enter");
+    await blockedPage.locator("#query").fill("");
+    assert.deepEqual(await blockedPage.locator("#search-suggestions button").allTextContents(), ["soup"]);
     await blockedPage.locator("#locations-button").click();
     assert.match(await blockedPage.locator("#preferences-warning").innerText(), /cannot be saved/);
     const missing = await site(null);
@@ -425,6 +701,10 @@ test("session storage fallback, blocked storage, partial/stale/missing/invalid d
     await blockedPage.locator("#loading-screen").waitFor({ state: "hidden" });
     assert.equal(await blockedPage.locator("#empty-title").innerText(), "Unable to load menus");
     assert.equal(await blockedPage.locator("#loading-screen").isVisible(), false);
+    await blockedPage.locator("#locations-button").click();
+    await blockedPage.getByRole("radio", { name: "Vendors", exact: true }).check();
+    assert.equal(await blockedPage.locator("#all-locations").isDisabled(), true);
+    await blockedPage.locator("#locations-dialog [data-close]").click();
     await blockedPage.locator("#about-button").click();
     assert.equal(await blockedPage.locator("#about-dialog").isVisible(), true);
     const invalid = await site({ schemaVersion: 999 });
