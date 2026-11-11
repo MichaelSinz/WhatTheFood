@@ -293,7 +293,7 @@ setTimeout(() => {
 	function validate(value) {
 		if (
 			!value ||
-			value.schemaVersion !== 1 ||
+			![1, 2].includes(value.schemaVersion) ||
 			!/^\d{4}-\d{2}-\d{2}$/.test(value.campusDay) ||
 			value.timeZone !== "America/Los_Angeles" ||
 			!Number.isFinite(Date.parse(value.generatedAt)) ||
@@ -309,12 +309,15 @@ setTimeout(() => {
 				!location.id ||
 				locationIDs.has(location.id) ||
 				typeof location.name !== "string" ||
-				!["ok", "error", "no_ordering_url"].includes(location.status) ||
+				!(value.schemaVersion === 2
+					? ["ok", "partial", "error", "no_ordering_url"]
+					: ["ok", "error", "no_ordering_url"]).includes(location.status) ||
 				!Array.isArray(location.items) ||
 				!Array.isArray(location.notices) ||
 				!location.notices.every((n) => typeof n === "string") ||
-				(location.status === "error" && typeof location.error !== "string") ||
-				(location.status !== "ok" && location.items.length)
+				(["error", "partial"].includes(location.status) && typeof location.error !== "string") ||
+				(!["ok", "partial"].includes(location.status) && location.items.length) ||
+				(location.status === "partial" && !location.items.length)
 			)
 				throw new Error("Invalid location data");
 			locationIDs.add(location.id);
@@ -361,7 +364,7 @@ setTimeout(() => {
 				}
 			}
 		}
-		if (value.complete !== !value.locations.some((l) => l.status === "error"))
+		if (value.complete !== !value.locations.some((l) => ["error", "partial"].includes(l.status)))
 			throw new Error("Inconsistent menu completeness");
 		return value;
 	}
@@ -474,13 +477,13 @@ setTimeout(() => {
 			row.append(label);
 			if (filterMode === "locations") {
 				const status = document.createElement("p");
-				status.className = `location-status${location.status === "error" ? " failed" : ""}`;
+				status.className = `location-status${["error", "partial"].includes(location.status) ? " failed" : ""}`;
 				status.textContent =
 					location.status === "no_ordering_url"
 						? "No ordering link in the directory."
 						: location.status === "error"
 							? `Fetch failed: ${location.error}`
-							: `${location.items.length.toLocaleString()} saved items${location.notices.length ? `\n${location.notices.join("\n")}` : ""}`;
+							: `${location.items.length.toLocaleString()} saved items${location.status === "partial" ? `\nPartial menu: ${location.error}` : ""}${location.notices.length ? `\n${location.notices.join("\n")}` : ""}`;
 				row.append(status);
 			} else if (location.absent) {
 				const status = document.createElement("p");
@@ -535,10 +538,11 @@ setTimeout(() => {
 		$("summary").textContent =
 			`${matches.length.toLocaleString()} ${matches.length === 1 ? "match" : "matches"} / ${total.toLocaleString()} items`;
 		const failed = enabled.filter((l) => l.status === "error").length;
+		const partial = enabled.filter((l) => l.status === "partial").length;
 		const notices = enabled.reduce((count, l) => count + l.notices.length, 0);
 		const stale = data.campusDay !== campusDay();
 		$("data-status").textContent =
-			`${data.campusDay} \u00b7 ${enabled.length} locations enabled${failed ? ` \u00b7 ${failed} failed` : ""}${notices ? ` \u00b7 ${notices} notices` : ""}`;
+			`${data.campusDay} \u00b7 ${enabled.length} locations enabled${failed ? ` \u00b7 ${failed} failed` : ""}${partial ? ` \u00b7 ${partial} partial` : ""}${notices ? ` \u00b7 ${notices} notices` : ""}`;
 		for (const field of ["vendors", "categories"]) {
 			const hidden = filterOptions[field].filter(
 				(option) => preferences[field].includes(option.id),
@@ -556,8 +560,16 @@ setTimeout(() => {
 			const allFailed = data.locations.filter(
 				(l) => l.status === "error",
 			).length;
+			const allPartial = data.locations.filter(
+				(l) => l.status === "partial",
+			).length;
+			const problems = [];
+			if (allFailed)
+				problems.push(`${allFailed} ${allFailed === 1 ? "location failed" : "locations failed"} to load`);
+			if (allPartial)
+				problems.push(`${allPartial} ${allPartial === 1 ? "location has" : "locations have"} incomplete menus`);
 			warnings.push(
-				`Partial snapshot: ${allFailed} ${allFailed === 1 ? "location failed" : "locations failed"} to load. See Filters for details.`,
+				`Partial snapshot: ${problems.join("; ")}. See Filters for details.`,
 			);
 		}
 		$("data-warning").textContent = warnings.join("  ");

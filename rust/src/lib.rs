@@ -10,8 +10,8 @@
 //!
 //! # Failure and publication
 //!
-//! A failed location is recorded in a partial snapshot rather than discarding
-//! other locations' menus.  Invalid identities, invalid concurrency, and runs
+//! Failed branches retain other usable items and produce an explicit partial
+//! snapshot.  Invalid identities, invalid concurrency, and runs
 //! crossing campus midnight return errors instead of a publishable snapshot.
 //! [`write_script`] atomically replaces a named file; [`write_script_to`] emits
 //! the same script to a writer without a file-replacement guarantee.
@@ -27,7 +27,9 @@ use reqwest::{Client, Url, header};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{collections::HashSet, io::Write, path::Path, str::FromStr, time::Duration};
+use std::{
+    collections::HashSet, future::Future, io::Write, path::Path, str::FromStr, time::Duration,
+};
 
 /// Runtime catalog entry; a missing URL preserves an unlinked directory entry.
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -50,14 +52,14 @@ pub struct Snapshot {
     time_zone: &'static str,
     started_at: DateTime<Utc>,
     generated_at: DateTime<Utc>,
-    /// False when any linked location failed; closed/unlinked locations are not failures.
+    /// False when any linked location failed or is partial; closed/unlinked entries are not failures.
     pub complete: bool,
     /// Results in catalog order, regardless of concurrent completion order.
     pub locations: Vec<LocationResult>,
 }
 
 impl Snapshot {
-    /// Whether more than half of the linked locations failed to fetch.
+    /// Whether more than half of the linked locations failed or remain partial.
     ///
     /// Unlinked locations are excluded; successful empty/closed menus count as
     /// successes regardless of item count.
@@ -70,7 +72,7 @@ impl Snapshot {
         let failed = self
             .locations
             .iter()
-            .filter(|location| location.status == "error")
+            .filter(|location| matches!(location.status, "error" | "partial"))
             .count();
         failed > linked / 2
     }
@@ -78,8 +80,8 @@ impl Snapshot {
 
 /// One location's menus, nonfatal notices, or explicit fetch failure.
 ///
-/// Status is `ok`, `error`, or `no_ordering_url`.  Failed locations have no items;
-/// notices describe legitimate unavailability or limited ordering-link metadata.
+/// Status is `ok`, `partial`, `error`, or `no_ordering_url`.  Partial locations
+/// retain usable items and an explicit error; failed locations have no items.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocationResult {
@@ -412,16 +414,23 @@ fn segment(value: &str) -> String {
     url.path()[1..].to_owned()
 }
 
-/// Resolve one location's scheduled menus into items and nonfatal notices.
+#[derive(Debug, Default)]
+struct Gathered {
+    items: Vec<Item>,
+    notices: Vec<String>,
+    errors: Vec<String>,
+}
+
+/// Resolve one location's scheduled menus, retaining independently usable items.
 ///
 /// Concept metadata can include other weekdays, so menus must be resolved through
 /// the scheduled menu endpoint before walking categories and fetching item IDs.
-/// A protocol error fails the location; no partially gathered items escape.
+/// Failures are recorded at store, vendor, menu, category, or item boundaries.
 async fn gather(
     api: &mut impl MenuApi,
     location: &Location,
     now: DateTime<Utc>,
-) -> Result<(Vec<Item>, Vec<String>)> {
+) -> Result<Gathered> {
     let location_context = format!("Location {:?}", location.name);
     api.request("login/anonymous", None)
         .await
@@ -445,128 +454,152 @@ async fn gather(
         list(&stores).with_context(|| format!("{location_context}: reading store list"))?;
     let mut items = Vec::new();
     let mut notices = Vec::new();
+    let mut errors = Vec::new();
     if stores.is_empty() {
         notices.push("No stores were returned for this location.".into());
     }
     for (store_index, store) in stores.iter().enumerate() {
         let store_context = format!("{location_context}, store #{}", store_index + 1);
-        if store["isShutdown"] == true {
-            notices.push("This location is shut down.".into());
-            continue;
-        }
-        ensure!(
-            store["isScheduleOrderEnabled"] == true,
-            "{store_context}: ASAP-only ordering is not supported"
-        );
-        let Some(slot) = slot(store, scheduling, now)
-            .with_context(|| format!("{store_context}: selecting pickup interval"))?
-        else {
-            notices.push("No remaining pickup slots today.".into());
-            continue;
-        };
-        let site = text(store, "id").with_context(|| store_context.clone())?;
-        let store_context = format!("{store_context} (ID {site:?})");
-        let profile = text(store, "displayProfileId").with_context(|| store_context.clone())?;
-        let base = valid_base(location).with_context(|| store_context.clone())?;
-        let mut ordering_url = base.clone();
-        ordering_url
-            .query_pairs_mut()
-            .append_pair("displayProfileId", &profile);
-        let root = format!("sites/{tenant}/{}", segment(&site));
-        let concepts_route = format!("{root}/concepts/{}", segment(&profile));
-        let concepts = api
-            .request(
-                &concepts_route,
-                Some(json!({
-                    "scheduleTime": slot, "scheduledDay": 0,
-                })),
-            )
-            .await
-            .with_context(|| format!("{store_context}: fetching vendors via {concepts_route}"))?;
-        let concepts =
-            list(&concepts).with_context(|| format!("{store_context}: reading vendor list"))?;
-        if concepts.is_empty() {
-            notices.push("No vendors available for today's pickup time.".into());
-        }
-        let context = pricing_context(store)
-            .with_context(|| format!("{store_context}: reading pricing configuration"))?;
-        for (vendor_index, concept) in concepts.iter().enumerate() {
-            let vendor_context = format!("{store_context}, vendor #{}", vendor_index + 1);
-            let vendor_id = text(concept, "id").with_context(|| vendor_context.clone())?;
-            let vendor = text(concept, "name")
-                .with_context(|| format!("{vendor_context} (ID {vendor_id:?})"))?
-                .trim()
-                .to_owned();
-            let vendor_context = format!("{store_context}, vendor {vendor:?} (ID {vendor_id:?})");
-            // Opening metadata controls the link, not whether the menu is usable.
-            let opening = match opening_window(concept, store, now) {
-                Ok(window) => window,
-                Err(error) => {
-                    notices.push(format!(
-                        "{vendor_context}: {error:#}. Choose a pickup time on the ordering website."
-                    ));
-                    None
-                }
+        let outcome: Result<()> = async {
+            if store["isShutdown"] == true {
+                notices.push("This location is shut down.".into());
+                return Ok(());
+            }
+            ensure!(
+                store["isScheduleOrderEnabled"] == true,
+                "{store_context}: ASAP-only ordering is not supported"
+            );
+            let Some(slot) = slot(store, scheduling, now)
+                .with_context(|| format!("{store_context}: selecting pickup interval"))?
+            else {
+                notices.push("No remaining pickup slots today.".into());
+                return Ok(());
             };
-            let mut body = context.clone();
-            body["menus"] = required(concept, "menus")
-                .with_context(|| vendor_context.clone())?
-                .clone();
-            body["schedule"] = required(concept, "schedule")
-                .with_context(|| vendor_context.clone())?
-                .clone();
-            body["scheduleTime"] = slot.clone();
-            body["scheduledDay"] = json!(0);
-            body["priceLevelConfig"] = concept
-                .get("priceLevelConfig")
-                .cloned()
-                .unwrap_or(json!({}));
-            let menus = api
+            let site = text(store, "id").with_context(|| store_context.clone())?;
+            let store_context = format!("{store_context} (ID {site:?})");
+            let profile = text(store, "displayProfileId").with_context(|| store_context.clone())?;
+            let base = valid_base(location).with_context(|| store_context.clone())?;
+            let mut ordering_url = base.clone();
+            ordering_url
+                .query_pairs_mut()
+                .append_pair("displayProfileId", &profile);
+            let root = format!("sites/{tenant}/{}", segment(&site));
+            let concepts_route = format!("{root}/concepts/{}", segment(&profile));
+            let concepts = api
                 .request(
-                    &format!("{concepts_route}/menus/{}", segment(&vendor_id)),
-                    Some(body),
+                    &concepts_route,
+                    Some(json!({
+                        "scheduleTime": slot, "scheduledDay": 0,
+                    })),
                 )
                 .await
-                .with_context(|| format!("{vendor_context}: resolving scheduled menus"))?;
-            let menus =
-                list(&menus).with_context(|| format!("{vendor_context}: reading menu list"))?;
-            for (menu_index, menu) in menus.iter().enumerate() {
-                let menu_context = format!("{vendor_context}, menu #{}", menu_index + 1);
-                if menu["isBoom"] == true {
-                    let error = required(menu, "output").with_context(|| menu_context.clone())?;
-                    let message = required(error, "payload")
-                        .and_then(|payload| text(payload, "message"))
-                        .with_context(|| menu_context.clone())?;
-                    // The provider embeds unavailable-menu responses inside HTTP 200.
-                    let status = text(error, "statusCode").with_context(|| menu_context.clone())?;
-                    ensure!(
-                        status == "410",
-                        "{menu_context}: menu status {status}: {message}"
-                    );
-                    notices.push(format!("{vendor}: {message}"));
-                    continue;
-                }
-                let menu_id = text(menu, "id").with_context(|| menu_context.clone())?;
-                let menu_name = menu.get("name").and_then(Value::as_str).unwrap_or("");
-                let menu_context = format!("{menu_context} (ID {menu_id:?}, name {menu_name:?})");
-                // Reverse the stack inputs to preserve provider order during depth-first
-                // traversal.  Display paths and supported website routes travel together.
-                let mut pending: Vec<_> = required(menu, "categories")
-                    .and_then(list)
-                    .with_context(|| format!("{menu_context}: reading categories"))?
-                    .iter()
-                    .rev()
-                    .map(|category| {
-                        (
-                            category,
-                            Vec::<String>::new(),
-                            (menu_index == 0).then(Vec::new),
-                        )
-                    })
-                    .collect();
-                while let Some((category, mut path, mut category_path)) = pending.pop() {
+                .with_context(|| {
+                    format!("{store_context}: fetching vendors via {concepts_route}")
+                })?;
+            let concepts =
+                list(&concepts).with_context(|| format!("{store_context}: reading vendor list"))?;
+            if concepts.is_empty() {
+                notices.push("No vendors available for today's pickup time.".into());
+            }
+            let context = pricing_context(store)
+                .with_context(|| format!("{store_context}: reading pricing configuration"))?;
+            for (vendor_index, concept) in concepts.iter().enumerate() {
+                let vendor_context = format!("{store_context}, vendor #{}", vendor_index + 1);
+                let outcome: Result<()> =
+                    async {
+                        let vendor_id =
+                            text(concept, "id").with_context(|| vendor_context.clone())?;
+                        let vendor = text(concept, "name")
+                            .with_context(|| format!("{vendor_context} (ID {vendor_id:?})"))?
+                            .trim()
+                            .to_owned();
+                        let vendor_context =
+                            format!("{store_context}, vendor {vendor:?} (ID {vendor_id:?})");
+                        // Opening metadata controls the link, not whether the menu is usable.
+                        let opening = match opening_window(concept, store, now) {
+                            Ok(window) => window,
+                            Err(error) => {
+                                notices.push(format!(
+                        "{vendor_context}: {error:#}. Choose a pickup time on the ordering website."
+                    ));
+                                None
+                            }
+                        };
+                        let mut body = context.clone();
+                        body["menus"] = required(concept, "menus")
+                            .with_context(|| vendor_context.clone())?
+                            .clone();
+                        body["schedule"] = required(concept, "schedule")
+                            .with_context(|| vendor_context.clone())?
+                            .clone();
+                        body["scheduleTime"] = slot.clone();
+                        body["scheduledDay"] = json!(0);
+                        body["priceLevelConfig"] = concept
+                            .get("priceLevelConfig")
+                            .cloned()
+                            .unwrap_or(json!({}));
+                        let menus = api
+                            .request(
+                                &format!("{concepts_route}/menus/{}", segment(&vendor_id)),
+                                Some(body),
+                            )
+                            .await
+                            .with_context(|| {
+                                format!("{vendor_context}: resolving scheduled menus")
+                            })?;
+                        let menus = list(&menus)
+                            .with_context(|| format!("{vendor_context}: reading menu list"))?;
+                        for (menu_index, menu) in menus.iter().enumerate() {
+                            let menu_context =
+                                format!("{vendor_context}, menu #{}", menu_index + 1);
+                            let outcome: Result<()> =
+                                async {
+                                    if menu["isBoom"] == true {
+                                        let error = required(menu, "output")
+                                            .with_context(|| menu_context.clone())?;
+                                        let message = required(error, "payload")
+                                            .and_then(|payload| text(payload, "message"))
+                                            .with_context(|| menu_context.clone())?;
+                                        // The provider embeds unavailable-menu responses inside HTTP 200.
+                                        let status = text(error, "statusCode")
+                                            .with_context(|| menu_context.clone())?;
+                                        ensure!(
+                                            status == "410",
+                                            "{menu_context}: menu status {status}: {message}"
+                                        );
+                                        notices.push(format!("{vendor}: {message}"));
+                                        return Ok(());
+                                    }
+                                    let menu_id =
+                                        text(menu, "id").with_context(|| menu_context.clone())?;
+                                    let menu_name =
+                                        menu.get("name").and_then(Value::as_str).unwrap_or("");
+                                    let menu_context = format!(
+                                        "{menu_context} (ID {menu_id:?}, name {menu_name:?})"
+                                    );
+                                    // Reverse the stack inputs to preserve provider order during depth-first
+                                    // traversal.  Display paths and supported website routes travel together.
+                                    let mut pending: Vec<_> = required(menu, "categories")
+                                        .and_then(list)
+                                        .with_context(|| {
+                                            format!("{menu_context}: reading categories")
+                                        })?
+                                        .iter()
+                                        .rev()
+                                        .map(|category| {
+                                            (
+                                                category,
+                                                Vec::<String>::new(),
+                                                (menu_index == 0).then(Vec::new),
+                                            )
+                                        })
+                                        .collect();
+                                    while let Some((category, mut path, mut category_path)) =
+                                        pending.pop()
+                                    {
+                                        let outcome: Result<()> = async {
                     if category["isAvailableToGuests"] == false {
-                        continue;
+                        return Ok(());
                     }
                     // Website routes use the first menu's returned IDs, at most two levels deep.
                     if let Some(route) = &mut category_path
@@ -596,7 +629,7 @@ async fn gather(
                         .with_context(|| category_context.clone())?;
                     let entries = if ids.is_empty() { packages } else { ids };
                     if entries.is_empty() {
-                        continue;
+                        return Ok(());
                     }
                     // Some menus already include full items.  Only unresolved IDs belong
                     // in the lookup request; mixing representations is a protocol error.
@@ -633,7 +666,13 @@ async fn gather(
                             continue;
                         }
                         let item_context = format!("{category_context}, item #{}", item_index + 1);
-                        let item_id = text(&item, "id").with_context(|| item_context.clone())?;
+                        let item_id = match text(&item, "id") {
+                            Ok(id) => id,
+                            Err(error) => {
+                                errors.push(format!("{item_context}: {error:#}"));
+                                continue;
+                            }
+                        };
                         let item_context = format!("{item_context} (ID {item_id:?})");
                         let parsed_item = (|| -> Result<Item> {
                             let price = required(&item, "price")?;
@@ -685,24 +724,59 @@ async fn gather(
                                     .filter(|route| !route.is_empty()),
                             })
                         })()
-                        .with_context(|| item_context.clone())?;
-                        items.push(parsed_item);
+                        .with_context(|| item_context.clone());
+                        match parsed_item {
+                            Ok(item) => items.push(item),
+                            Err(error) => errors.push(format!("{error:#}")),
+                        }
                     }
+                    Ok(())
+                    }.await;
+                                        if let Err(error) = outcome {
+                                            errors.push(format!("{error:#}"));
+                                        }
+                                    }
+                                    Ok(())
+                                }
+                                .await;
+                            if let Err(error) = outcome {
+                                errors.push(format!("{error:#}"));
+                            }
+                        }
+                        Ok(())
+                    }
+                    .await;
+                if let Err(error) = outcome {
+                    errors.push(format!("{error:#}"));
                 }
             }
+            Ok(())
+        }
+        .await;
+        if let Err(error) = outcome {
+            errors.push(format!("{error:#}"));
         }
     }
-    if items.is_empty() && notices.is_empty() {
+    if items.is_empty() && notices.is_empty() && errors.is_empty() {
         notices.push("No available menu items were returned.".into());
     }
-    Ok((items, notices))
+    Ok(Gathered {
+        items,
+        notices,
+        errors,
+    })
 }
+
+const MAX_LOCATION_RETRIES: usize = 2;
+const LOCATION_RETRY_DELAY: Duration = Duration::from_secs(5);
 
 /// Fetch fresh menus with at most `concurrency` locations in flight.
 ///
 /// Names must be nonblank and IDs (parsed hostnames, otherwise names) unique.
 /// Validate those invariants before any network access.  Unlinked entries are
 /// retained without fetching; linked failures set [`Snapshot::complete`] to false.
+/// Failed/partial locations with valid ordering URLs get at most two retries, each after
+/// the current round finishes and a five-second pause, using a fresh session.
 ///
 /// # Errors
 ///
@@ -710,6 +784,22 @@ async fn gather(
 /// run crossing midnight in America/Los_Angeles.  Individual location failures
 /// are recorded in the returned snapshot and reported to stderr.
 pub async fn fetch_all(locations: Vec<Location>, concurrency: usize) -> Result<Snapshot> {
+    fetch_all_with(locations, concurrency, |location, base, now| async move {
+        let mut api = LiveApi::new(base)?;
+        gather(&mut api, &location, now).await
+    })
+    .await
+}
+
+async fn fetch_all_with<F, Fut>(
+    locations: Vec<Location>,
+    concurrency: usize,
+    fetch: F,
+) -> Result<Snapshot>
+where
+    F: Fn(Location, Url, DateTime<Utc>) -> Fut,
+    Fut: Future<Output = Result<Gathered>>,
+{
     ensure!(
         concurrency > 0 && concurrency <= 16,
         "Concurrency must be between 1 and 16"
@@ -738,27 +828,49 @@ pub async fn fetch_all(locations: Vec<Location>, concurrency: usize) -> Result<S
         .collect::<Result<Vec<_>>>()?;
     let started_at = Utc::now();
     let day = started_at.with_timezone(&Pacific).date_naive();
-    let mut results: Vec<_> = stream::iter(locations.into_iter().enumerate())
-        .map(|(index, (id, location))| async move {
-            let mut result = LocationResult {
-                id,
-                location,
-                status: "no_ordering_url",
-                fetched_at: None,
-                error: None,
-                notices: Vec::new(),
-                items: Vec::new(),
-            };
-            if result.location.url.is_some() {
+    let mut results: Vec<_> = locations
+        .into_iter()
+        .map(|(id, location)| LocationResult {
+            id,
+            location,
+            status: "no_ordering_url",
+            fetched_at: None,
+            error: None,
+            notices: Vec::new(),
+            items: Vec::new(),
+        })
+        .collect();
+    for result in results
+        .iter()
+        .filter(|result| result.location.url.is_none())
+    {
+        eprintln!("{}: no_ordering_url, 0 items", result.location.name);
+    }
+    // Invalid catalog URLs cannot recover through another network attempt.
+    let retryable = |result: &LocationResult| {
+        matches!(result.status, "error" | "partial") && valid_base(&result.location).is_ok()
+    };
+    for attempt in 0..=MAX_LOCATION_RETRIES {
+        ensure!(
+            Utc::now().with_timezone(&Pacific).date_naive() == day,
+            "Campus date changed during fetch; previous output retained; run again"
+        );
+        stream::iter(
+            results.iter_mut().filter(|result| {
+                result.location.url.is_some() && (attempt == 0 || retryable(result))
+            }),
+        )
+        .map(|result| {
+            let fetch = &fetch;
+            async move {
                 let fetched = async {
                     let base = valid_base(&result.location)?;
-                    let mut api = LiveApi::new(base)?;
                     let now = Utc::now();
                     ensure!(
                         now.with_timezone(&Pacific).date_naive() == day,
                         "Campus date changed during fetch; run again"
                     );
-                    let data = gather(&mut api, &result.location, now).await?;
+                    let data = fetch(result.location.clone(), base, now).await?;
                     ensure!(
                         Utc::now().with_timezone(&Pacific).date_naive() == day,
                         "Campus date changed during fetch; run again"
@@ -768,50 +880,83 @@ pub async fn fetch_all(locations: Vec<Location>, concurrency: usize) -> Result<S
                 .await
                 .with_context(|| format!("Fetching location {:?}", result.location.name));
                 match fetched {
-                    Ok((items, notices)) => {
-                        result.status = "ok";
-                        result.items = items;
-                        result.notices = notices;
-                        result.fetched_at = Some(Utc::now());
+                    Ok(gathered) => {
+                        if gathered.errors.is_empty() {
+                            result.items = gathered.items;
+                        } else {
+                            let updated: HashSet<_> =
+                                gathered.items.iter().map(|item| item.id.as_str()).collect();
+                            result
+                                .items
+                                .retain(|item| !updated.contains(item.id.as_str()));
+                            result.items.extend(gathered.items);
+                        }
+                        result.status = if gathered.errors.is_empty() {
+                            "ok"
+                        } else if result.items.is_empty() {
+                            "error"
+                        } else {
+                            "partial"
+                        };
+                        result.error =
+                            (!gathered.errors.is_empty()).then(|| gathered.errors.join("\n"));
+                        result.notices = gathered.notices;
+                        if result.status != "error" {
+                            result.fetched_at = Some(Utc::now());
+                        }
                     }
                     Err(error) => {
-                        result.status = "error";
+                        result.status = if result.items.is_empty() {
+                            "error"
+                        } else {
+                            "partial"
+                        };
                         result.error = Some(format!("{error:#}"));
                     }
                 }
+                eprintln!(
+                    "{}: {}, {} items",
+                    result.location.name,
+                    result.status,
+                    result.items.len()
+                );
+                if let Some(error) = &result.error {
+                    eprintln!("  {error}");
+                }
+                for notice in &result.notices {
+                    eprintln!("  {notice}");
+                }
             }
-            eprintln!(
-                "{}: {}, {} items",
-                result.location.name,
-                result.status,
-                result.items.len()
-            );
-            if let Some(error) = &result.error {
-                eprintln!("  {error}");
-            }
-            for notice in &result.notices {
-                eprintln!("  {notice}");
-            }
-            (index, result)
         })
         .buffer_unordered(concurrency)
-        .collect()
+        .collect::<Vec<_>>()
         .await;
-    // Concurrent completion must not reorder the runtime catalog.
-    results.sort_by_key(|(index, _)| *index);
-    let locations: Vec<_> = results.into_iter().map(|(_, result)| result).collect();
-    // Never publish mixed days if a run crosses campus midnight.
-    ensure!(
-        Utc::now().with_timezone(&Pacific).date_naive() == day,
-        "Campus date changed during fetch; previous output retained; run again"
-    );
+        // Never retry or publish mixed days if a run crosses campus midnight.
+        ensure!(
+            Utc::now().with_timezone(&Pacific).date_naive() == day,
+            "Campus date changed during fetch; previous output retained; run again"
+        );
+        let failed = results.iter().filter(|result| retryable(result)).count();
+        if failed == 0 || attempt == MAX_LOCATION_RETRIES {
+            break;
+        }
+        eprintln!(
+            "Retrying {failed} failed locations in {} seconds (retry {}/{MAX_LOCATION_RETRIES}).",
+            LOCATION_RETRY_DELAY.as_secs(),
+            attempt + 1
+        );
+        tokio::time::sleep(LOCATION_RETRY_DELAY).await;
+    }
+    let locations = results;
     Ok(Snapshot {
-        schema_version: 1,
+        schema_version: 2,
         campus_day: day.to_string(),
         time_zone: "America/Los_Angeles",
         started_at,
         generated_at: Utc::now(),
-        complete: locations.iter().all(|location| location.status != "error"),
+        complete: locations
+            .iter()
+            .all(|location| !matches!(location.status, "error" | "partial")),
         locations,
     })
 }
@@ -1048,9 +1193,14 @@ mod tests {
             name: "Cafe".into(),
             url: Some("https://cafe16.buy-ondemand.com/".into()),
         };
-        let (items, notices) = gather(&mut api, &location, now("2026-10-23T17:00:00Z"))
+        let Gathered {
+            items,
+            notices,
+            errors,
+        } = gather(&mut api, &location, now("2026-10-23T17:00:00Z"))
             .await
             .unwrap();
+        assert!(errors.is_empty());
         assert!(api.responses.is_empty());
         assert_eq!(items.len(), 3);
         assert_eq!(items[0].name, "Fish");
@@ -1075,17 +1225,73 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn embedded_errors_other_than_410_fail_the_location() {
+    async fn embedded_errors_other_than_410_preserve_other_menus() {
         let mut api = fixture(500);
         let location = Location {
             name: "Cafe".into(),
             url: Some("https://cafe16.buy-ondemand.com/".into()),
         };
-        assert!(
-            gather(&mut api, &location, now("2026-10-23T17:00:00Z"))
+        let gathered = gather(&mut api, &location, now("2026-10-23T17:00:00Z"))
+            .await
+            .unwrap();
+        assert_eq!(gathered.items.len(), 3);
+        assert!(gathered.errors[0].contains("menu status 500"));
+    }
+
+    #[tokio::test]
+    async fn failures_in_stores_vendors_and_items_preserve_healthy_siblings() {
+        let location = Location {
+            name: "Cafe".into(),
+            url: Some("https://cafe16.buy-ondemand.com/".into()),
+        };
+        for boundary in ["store", "vendor", "item"] {
+            let mut api = fixture(410);
+            match boundary {
+                "store" => api.responses[2]
+                    .1
+                    .as_array_mut()
+                    .unwrap()
+                    .insert(0, json!({"isScheduleOrderEnabled":false})),
+                "vendor" => api.responses[3].1.as_array_mut().unwrap().insert(
+                    0,
+                    json!({"id":"broken","name":"Broken","menus":null,"schedule":[]}),
+                ),
+                "item" => {
+                    let entries = api.responses[4].1[1]["categories"][0]["items"]
+                        .as_array_mut()
+                        .unwrap();
+                    entries[0]["price"]["amount"] = json!("invalid");
+                    entries.push(json!({
+                        "id":"bread", "name":"Bread",
+                        "price":{"amount":"1.00","currencyUnit":"USD"}
+                    }));
+                }
+                _ => unreachable!(),
+            }
+            let gathered = gather(&mut api, &location, now("2026-10-23T17:00:00Z"))
                 .await
-                .is_err()
-        );
+                .unwrap();
+            assert_eq!(
+                gathered.errors.len(),
+                1,
+                "{boundary}: {:?}",
+                gathered.errors
+            );
+            assert_eq!(
+                gathered
+                    .items
+                    .iter()
+                    .map(|item| item.name.as_str())
+                    .collect::<Vec<_>>(),
+                [
+                    if boundary == "item" { "Bread" } else { "Fish" },
+                    "Soup",
+                    "Combo"
+                ],
+                "{boundary}"
+            );
+            assert!(api.responses.is_empty(), "{boundary}");
+        }
     }
 
     #[tokio::test]
@@ -1143,10 +1349,10 @@ mod tests {
                 .1
                 .pointer_mut(pointer)
                 .unwrap() = value;
-            let error = gather(&mut api, &location, now("2026-10-23T17:00:00Z"))
-                .await
-                .unwrap_err();
-            let message = format!("{error:#}");
+            let message = match gather(&mut api, &location, now("2026-10-23T17:00:00Z")).await {
+                Ok(gathered) => gathered.errors.join("\n"),
+                Err(error) => format!("{error:#}"),
+            };
             for expected in ["Location \"Cafe\"", context, cause] {
                 assert!(
                     message.contains(expected),
@@ -1165,10 +1371,13 @@ mod tests {
             name: "Cafe".into(),
             url: Some("https://cafe16.buy-ondemand.com/".into()),
         };
-        let error = gather(&mut api, &location, now("2026-10-23T17:00:00Z"))
+        let gathered = gather(&mut api, &location, now("2026-10-23T17:00:00Z"))
             .await
-            .unwrap_err();
-        let message = format!("{error:#}");
+            .unwrap();
+        assert_eq!(gathered.items.len(), 2);
+        assert_eq!(gathered.items[0].name, "Fish");
+        assert_eq!(gathered.items[1].name, "Combo");
+        let message = gathered.errors.join("\n");
         for expected in [
             "Location \"Cafe\"",
             "vendor \"Vendor\"",
@@ -1234,9 +1443,11 @@ mod tests {
             name: "Cafe".into(),
             url: Some("https://cafe16.buy-ondemand.com/".into()),
         };
-        let (items, _) = gather(&mut api, &location, now("2026-10-23T17:00:00Z"))
-            .await
-            .unwrap();
+        let Gathered { items, errors, .. } =
+            gather(&mut api, &location, now("2026-10-23T17:00:00Z"))
+                .await
+                .unwrap();
+        assert!(errors.is_empty());
         let paths: Vec<_> = items
             .iter()
             .map(|item| item.ordering_category_path.clone())
@@ -1263,13 +1474,269 @@ mod tests {
             name: "Cafe".into(),
             url: Some("https://cafe16.buy-ondemand.com/".into()),
         };
-        let (items, _) = gather(&mut api, &location, now("2026-10-23T17:00:00Z"))
-            .await
-            .unwrap();
+        let Gathered { items, errors, .. } =
+            gather(&mut api, &location, now("2026-10-23T17:00:00Z"))
+                .await
+                .unwrap();
+        assert!(errors.is_empty());
         assert!(
             items
                 .iter()
                 .all(|item| item.ordering_category_path.is_none())
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn retries_wait_for_each_round_and_only_repeat_failed_locations() {
+        use std::{cell::RefCell, rc::Rc};
+        use tokio::time::Instant;
+
+        let names = ["Slow", "First retry", "Second retry", "Unlinked"];
+        let locations = names
+            .iter()
+            .enumerate()
+            .map(|(index, name)| Location {
+                name: (*name).into(),
+                url: (*name != "Unlinked")
+                    .then(|| format!("https://site{index}.buy-ondemand.com/")),
+            })
+            .collect();
+        let attempts = Rc::new(RefCell::new(std::collections::HashMap::new()));
+        let events = Rc::new(RefCell::new(Vec::new()));
+        let snapshot = fetch_all_with(locations, 2, {
+            let attempts = attempts.clone();
+            let events = events.clone();
+            move |location: Location, _, _| {
+                let attempts = attempts.clone();
+                let events = events.clone();
+                async move {
+                    let attempt = {
+                        let mut attempts = attempts.borrow_mut();
+                        let count = attempts.entry(location.name.clone()).or_insert(0usize);
+                        *count += 1;
+                        *count
+                    };
+                    let started = Instant::now();
+                    tokio::time::sleep(Duration::from_secs(if location.name == "Slow" {
+                        3
+                    } else {
+                        1
+                    }))
+                    .await;
+                    events.borrow_mut().push((
+                        location.name.clone(),
+                        attempt,
+                        started,
+                        Instant::now(),
+                    ));
+                    let required_attempts = match location.name.as_str() {
+                        "Slow" => 1,
+                        "First retry" => 2,
+                        "Second retry" => 3,
+                        _ => panic!("Unlinked location must not be fetched"),
+                    };
+                    ensure!(attempt >= required_attempts, "Temporary failure {attempt}");
+                    Ok(Gathered {
+                        notices: vec!["Fetched successfully".into()],
+                        ..Gathered::default()
+                    })
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert!(snapshot.complete);
+        assert!(!snapshot.has_majority_failures());
+        assert_eq!(
+            snapshot
+                .locations
+                .iter()
+                .map(|result| result.location.name.as_str())
+                .collect::<Vec<_>>(),
+            names
+        );
+        for result in &snapshot.locations[..3] {
+            assert_eq!(result.status, "ok");
+            assert!(result.error.is_none());
+            assert!(result.fetched_at.is_some());
+            assert_eq!(result.notices, ["Fetched successfully"]);
+        }
+        assert_eq!(snapshot.locations[3].status, "no_ordering_url");
+        let attempts = attempts.borrow();
+        assert_eq!(attempts["Slow"], 1);
+        assert_eq!(attempts["First retry"], 2);
+        assert_eq!(attempts["Second retry"], 3);
+        assert!(!attempts.contains_key("Unlinked"));
+        let events = events.borrow();
+        for attempt in 1..=2 {
+            let last_finish = events
+                .iter()
+                .filter(|event| event.1 == attempt)
+                .map(|event| event.3)
+                .max()
+                .unwrap();
+            let first_retry = events
+                .iter()
+                .filter(|event| event.1 == attempt + 1)
+                .map(|event| event.2)
+                .min()
+                .unwrap();
+            assert!(first_retry - last_finish >= Duration::from_secs(5));
+        }
+        let peak_concurrency = events
+            .iter()
+            .map(|event| {
+                events
+                    .iter()
+                    .filter(|other| other.2 <= event.2 && event.2 < other.3)
+                    .count()
+            })
+            .max()
+            .unwrap();
+        assert_eq!(peak_concurrency, 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn retries_retain_partial_items_and_replace_them_on_complete_recovery() {
+        use std::{cell::Cell, rc::Rc};
+
+        for recovers in [false, true] {
+            let attempts = Rc::new(Cell::new(0));
+            let location = Location {
+                name: "Cafe".into(),
+                url: Some("https://cafe16.buy-ondemand.com/".into()),
+            };
+            let snapshot = fetch_all_with(vec![location], 2, {
+                let attempts = attempts.clone();
+                move |location, _, _| {
+                    let attempts = attempts.clone();
+                    async move {
+                        let attempt = attempts.get() + 1;
+                        attempts.set(attempt);
+                        ensure!(
+                            attempt < 3 || recovers,
+                            "Fresh anonymous login: HTTP 503 Service Unavailable"
+                        );
+                        // Each attempt gets its own anonymous API session.
+                        let mut api = fixture(410);
+                        let mut gathered =
+                            gather(&mut api, &location, now("2026-10-23T17:00:00Z")).await?;
+                        if attempt < 3 {
+                            gathered.items.truncate(attempt);
+                            gathered.items[0].price =
+                                if attempt == 1 { "5.99" } else { "6.25" }.into();
+                            gathered
+                                .errors
+                                .push("Bakery: HTTP 503 Service Unavailable".into());
+                        }
+                        Ok(gathered)
+                    }
+                }
+            })
+            .await
+            .unwrap();
+            assert_eq!(attempts.get(), 3);
+            let result = &snapshot.locations[0];
+            assert_eq!(snapshot.complete, recovers);
+            assert_eq!(snapshot.has_majority_failures(), !recovers);
+            assert_eq!(result.status, if recovers { "ok" } else { "partial" });
+            assert_eq!(result.items.len(), if recovers { 3 } else { 2 });
+            assert_eq!(
+                result.items[0].price,
+                if recovers { "5.99" } else { "6.25" }
+            );
+            assert!(result.fetched_at.is_some());
+            if recovers {
+                assert!(result.error.is_none());
+            } else {
+                assert!(
+                    result
+                        .error
+                        .as_deref()
+                        .unwrap()
+                        .contains("Fresh anonymous login")
+                );
+                assert_eq!(
+                    result
+                        .items
+                        .iter()
+                        .map(|item| &item.id)
+                        .collect::<HashSet<_>>()
+                        .len(),
+                    result.items.len()
+                );
+            }
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn retries_stop_after_three_attempts_and_leave_explicit_failures() {
+        use std::{cell::RefCell, rc::Rc};
+        use tokio::time::Instant;
+
+        let locations = vec![
+            Location {
+                name: "Good".into(),
+                url: Some("https://good.buy-ondemand.com/".into()),
+            },
+            Location {
+                name: "Broken".into(),
+                url: Some("https://broken.buy-ondemand.com/".into()),
+            },
+            Location {
+                name: "Unlinked".into(),
+                url: None,
+            },
+            Location {
+                name: "Invalid".into(),
+                url: Some("https://example.invalid/".into()),
+            },
+        ];
+        let attempts = Rc::new(RefCell::new(std::collections::HashMap::new()));
+        let started = Instant::now();
+        let snapshot = fetch_all_with(locations, 2, {
+            let attempts = attempts.clone();
+            move |location: Location, _, _| {
+                let attempts = attempts.clone();
+                async move {
+                    let mut attempts = attempts.borrow_mut();
+                    let attempt = attempts.entry(location.name.clone()).or_insert(0usize);
+                    *attempt += 1;
+                    ensure!(
+                        location.name == "Good",
+                        "HTTP 503 Service Unavailable on attempt {attempt}"
+                    );
+                    Ok(Gathered::default())
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(Instant::now() - started, Duration::from_secs(10));
+        let attempts = attempts.borrow();
+        assert_eq!(attempts["Good"], 1);
+        assert_eq!(attempts["Broken"], 3);
+        assert_eq!(attempts.len(), 2);
+        assert!(!snapshot.complete);
+        assert!(snapshot.has_majority_failures());
+        assert_eq!(snapshot.locations[0].status, "ok");
+        assert_eq!(snapshot.locations[1].status, "error");
+        assert!(
+            snapshot.locations[1]
+                .error
+                .as_deref()
+                .unwrap()
+                .contains("HTTP 503 Service Unavailable on attempt 3")
+        );
+        assert!(snapshot.locations[1].items.is_empty());
+        assert!(snapshot.locations[1].fetched_at.is_none());
+        assert_eq!(snapshot.locations[2].status, "no_ordering_url");
+        assert!(
+            snapshot.locations[3]
+                .error
+                .as_deref()
+                .unwrap()
+                .contains("Invalid ordering URL")
         );
     }
 
@@ -1338,7 +1805,7 @@ mod tests {
             .strip_suffix(";\n")
             .unwrap();
         let data: Value = serde_json::from_str(json).unwrap();
-        assert_eq!(data["schemaVersion"], 1);
+        assert_eq!(data["schemaVersion"], 2);
         assert_eq!(data["locations"][1]["items"], json!([]));
         assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
     }
@@ -1412,10 +1879,12 @@ mod tests {
             let mut api = ReplayApi {
                 calls: list(&entry["calls"]).unwrap().clone(),
             };
-            let (items, _) = gather(&mut api, &location, now("2026-10-23T17:00:00Z"))
-                .await
-                .with_context(|| location.name.clone())
-                .unwrap();
+            let Gathered { items, errors, .. } =
+                gather(&mut api, &location, now("2026-10-23T17:00:00Z"))
+                    .await
+                    .with_context(|| location.name.clone())
+                    .unwrap();
+            assert!(errors.is_empty(), "{}: {errors:?}", location.name);
             let mut actual: Vec<_> = items
                 .iter()
                 .map(|item| {

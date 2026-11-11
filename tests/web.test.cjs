@@ -459,6 +459,41 @@ for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]]) {
     } finally { await browser.close(); await fs.rm(fixture.directory, { recursive: true }); }
   });
 
+  test(`${name}: partial cafe menus remain searchable and explicitly incomplete`, async () => {
+    const data = snapshot();
+    data.schemaVersion = 2;
+    data.complete = false;
+    data.locations[0].status = "partial";
+    data.locations[0].error = "Bakery: HTTP 503 Service Unavailable";
+    data.locations[0].items = [data.locations[0].items[0]];
+    const fixture = await site(data);
+    const browser = await engine.launch({ headless: true });
+    try {
+      const page = await browser.newPage({ viewport: { width: 375, height: 667 } });
+      await page.goto(fixture.url);
+      await page.locator("#loading-screen").waitFor({ state: "hidden" });
+      assert.match(await page.locator("#summary").textContent(), /2 matches/);
+      assert.match(await page.locator("#data-status").textContent(), /1 partial/);
+      assert.match(await page.locator("#data-warning").textContent(), /1 location has incomplete menus/);
+      await page.locator("#query").fill("soup");
+      assert.equal(await page.locator("tbody .item-button").textContent(), "Soup");
+      await page.locator("#locations-button").click();
+      assert.match(await page.locator("#location-list").textContent(), /1 saved items\nPartial menu: Bakery: HTTP 503/);
+      await page.getByRole("switch", { name: "Cafe 2", exact: true }).uncheck();
+      assert.match(await page.locator("#summary").textContent(), /0 matches/);
+      for (const [invalid, message] of [
+        [{ ...data, schemaVersion: 1 }, /Invalid location data/],
+        [{ ...data, complete: true }, /Inconsistent menu completeness/],
+        [{ ...data, locations: [{ ...data.locations[0], items: [] }] }, /Invalid location data/],
+      ]) {
+        await fs.writeFile(path.join(fixture.directory, "menus.js"), `const menuData = ${JSON.stringify(invalid)};\n`);
+        await page.reload();
+        await page.locator("#loading-screen").waitFor({ state: "hidden" });
+        assert.match(await page.locator("#empty-message").textContent(), message);
+      }
+    } finally { await browser.close(); await fs.rm(fixture.directory, { recursive: true }); }
+  });
+
   test(`${name}: category aliases share filters and normalize saved exclusions across menu days`, async () => {
     const groups = [
       ["Entr\u00e9es", ["Entrees", "Entr\u00e9e", "Entr\u00e9es"]],
