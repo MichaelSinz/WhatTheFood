@@ -459,6 +459,88 @@ for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]]) {
     } finally { await browser.close(); await fs.rm(fixture.directory, { recursive: true }); }
   });
 
+  test(`${name}: vendor aliases share filters and migrate exclusions across menu days`, async () => {
+    const groups = [
+      ["Chef's Table", ["Chef's Table", "Chef\u2019s Table", "Chefs Table"]],
+      ["Between the Bread", ["Between the Bread", "Between The Bread", "Deli \u2013 Between The Bread"]],
+      ["Caffe Lusso", ["Caffe Lusso", "Caff\u00e9 Lusso"]],
+      ["Caffe Vita", ["Caffe Vita", "Caff\u00e9 Vita"]],
+      ["MiLa", ["Mila", "MiLa"]],
+      ["Boon Boona", ["Boon Boona", "Boon Boona Coffee"]],
+      ["The Sub Shoppe", ["Sub Shoppe", "The Sub Shoppe"]],
+      ["Pacific Rim", ["Pac Rim", "Pacific Rim", "Pacific Rim Wok"]],
+      ["Himalaya Indian", ["Himalaya", "Himalaya Indian"]],
+      ["Paparepas", ["Paparepas", "Paparepas Authentic Venezuelan Food"]],
+      ["OmaBap", ["OmaBap", "Brands - Omabap"]],
+      ["Adobe Flat", ["Adobe Flat", "Adobe Flat Mexican"]],
+      ["'Ono Hawaiian", ["'Ono", "'Ono Hawaiian"]],
+      ["House of Yoshi", ["House of Yoshi", "HOY-Sushi"]],
+      ["&BACK", ["&BACK", "Espresso - &BACK"]],
+      ["Comfort Food", ["Comfort Food", "Comfort Food Favorites"]],
+      ["Market Fresh", ["Market Fresh", "Market Fresh - Dim Sum",
+        "Market Fresh - Inspired Salads", "Market Fresh - Poke"]],
+      ["New Vendor", ["New Vendor", " NEW\u00a0  VENDOR ", "Ne\u0301w Vendor"]],
+    ];
+    const distinct = ["Grill", "Grilled", "Mediterranean", "Mediterranean Grill",
+      "Flip", "Flip Grill", "Dote \u2013 Espresso", "Espresso", "The Market",
+      "New Vendor 16oz", "Vendor + Team", "Vendor and Team"];
+    const vendors = [...groups.flatMap(([, aliases]) => aliases), ...distinct];
+    const data = snapshot();
+    const first = data.locations[0].items[0], second = data.locations[1].items[0];
+    data.locations[0].items = vendors.map((vendor, index) => ({
+      ...first, id: first.id + index, name: `Vendor item ${index}`, vendor,
+    }));
+    data.locations[1].items = [{ ...second, vendor: "Chef\u2019s Table" }];
+    const fixture = await site(data);
+    const browser = await engine.launch({ headless: true });
+    try {
+      const page = await browser.newPage({ viewport: { width: 375, height: 667 } });
+      await page.goto(fixture.url);
+      await page.locator("#loading-screen").waitFor({ state: "hidden" });
+      await page.locator("#locations-button").click();
+      await page.getByRole("radio", { name: "Vendors", exact: true }).check();
+      assert.equal(await page.getByRole("switch").count(), groups.length + distinct.length);
+      for (const [label, aliases] of groups) {
+        const toggle = page.getByRole("switch", { name: label, exact: true });
+        await toggle.uncheck();
+        assert.equal(await page.locator("tbody tr").count(),
+          vendors.length + 1 - aliases.length - (label === "Chef's Table" ? 1 : 0), label);
+        await toggle.check();
+      }
+      for (const label of distinct)
+        assert.equal(await page.getByRole("switch", { name: label, exact: true }).isChecked(), true);
+      await page.locator("#locations-dialog [data-close]").click();
+      await page.getByRole("button", { name: "Vendor item 1", exact: true }).click();
+      assert.equal(await page.locator("#detail-vendor").textContent(), "Chef\u2019s Table");
+      await page.locator("#detail-dialog [data-close]").click();
+      await page.evaluate(aliases => localStorage.setItem("what-the-food.vendors.v1",
+        JSON.stringify([...aliases, "Absent Vendor"])), groups.flatMap(([, aliases]) => aliases));
+      await page.reload();
+      await page.locator("#loading-screen").waitFor({ state: "hidden" });
+      assert.equal(await page.locator("tbody tr").count(), distinct.length);
+      await page.locator("#locations-button").click();
+      await page.getByRole("radio", { name: "Vendors", exact: true }).check();
+      const absent = page.getByRole("switch", { name: "Absent Vendor", exact: true });
+      assert.equal(await absent.isChecked(), false);
+      assert.match(await absent.locator("..").locator("..").textContent(), /Not in this snapshot/);
+      await page.getByRole("switch", { name: "Grill", exact: true }).uncheck();
+      await page.getByRole("switch", { name: "Grill", exact: true }).check();
+      assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem("what-the-food.vendors.v1"))),
+        [...groups.map(([label]) => label), "Absent Vendor"]);
+      data.locations[0].items = [
+        ...groups.map(([vendor], index) => ({ ...first, id: first.id + index, vendor })),
+        { ...first, id: first.id + "absent", vendor: " ABSENT\u00a0VENDOR " },
+        { ...first, id: first.id + "new", vendor: "Tomorrow's Vendor", name: "New offering" },
+      ];
+      data.locations[1].items = [];
+      await fs.writeFile(path.join(fixture.directory, "menus.js"), `const menuData = ${JSON.stringify(data)};\n`);
+      await page.reload();
+      await page.locator("#loading-screen").waitFor({ state: "hidden" });
+      assert.equal(await page.locator("tbody tr").count(), 1);
+      assert.equal(await page.locator("tbody .item-button").textContent(), "New offering");
+    } finally { await browser.close(); await fs.rm(fixture.directory, { recursive: true }); }
+  });
+
   test(`${name}: partial cafe menus remain searchable and explicitly incomplete`, async () => {
     const data = snapshot();
     data.schemaVersion = 2;

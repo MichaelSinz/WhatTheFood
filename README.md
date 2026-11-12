@@ -20,6 +20,8 @@ The **Filters** button offers three groups: Locations, Vendors, and Categories. 
 
 Category filters group equivalent spellings, case, accents, spacing, `&`/`+`/`and` separators, and size variants.  Breakfast, Coffee + Espresso, Sandwiches, Salads, and Pizza include equivalent vendor-specific names.  Pizza includes whole pizzas and slices; cauliflower-crust and Detroit-style pizzas have separate filters.  Mixed “+ More” categories, Cold Brew, and non-coffee drinks have separate filters.  Results display original category text; exclusions apply to the whole group.
 
+Vendor filters group case, accent, spacing, and apostrophe variants, along with known alternate names for the same vendor.  Comfort Food and Market Fresh each share a filter across their menu variants.  Results display original vendor names; exclusions apply to the whole group.
+
 Focus the search box to pick from your six most-used searches, ranked by use with recent use breaking ties.  Suggestions narrow as you type.  A search counts when you leave the field, press Enter, open an item, or choose a suggestion, not on every keystroke.
 
 Searches and filter preferences are not sent to a server.  In fact, the page works directly from your local filesystem without an HTTP server.

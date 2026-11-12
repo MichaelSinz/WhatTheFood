@@ -40,55 +40,87 @@ setTimeout(() => {
 			.normalize("NFD")
 			.replace(/[\u0300-\u036f]/g, "")
 			.toLowerCase();
+	const nameText = (value) => value.normalize("NFKC").replace(/\s+/g, " ").trim();
+	function createNameNormalizer(groups, text = nameText, separators = (value) => value) {
+		const aliases = new Map(), labels = new Map();
+		const match = (value) =>
+			separators(normalize(text(value)).replace(/[\u2018\u2019]/g, "'"));
+		for (const [label, ...names] of groups) {
+			const id = match(label);
+			labels.set(id, label);
+			for (const name of [label, ...names]) aliases.set(match(name), id);
+		}
+		const key = (value) => {
+			const id = match(value);
+			return aliases.get(id) ?? id;
+		};
+		const register = (value) => {
+			const id = key(value);
+			if (!labels.has(id)) labels.set(id, separators(text(value)));
+			return id;
+		};
+		const label = (id) => labels.get(id) ?? id;
+		return {
+			key,
+			load: (values) => [...new Set(values.map(register))],
+			save: (ids) => ids.map(label),
+			options(values, excluded, emptyLabel) {
+				const present = new Set(values.map(register));
+				return [...new Set([...present, ...excluded])]
+					.sort(collator.compare)
+					.map((id) => ({
+						id,
+						name: label(id) || emptyLabel,
+						absent: !present.has(id),
+					}));
+			},
+		};
+	}
 	const categoryText = (value) =>
-		value.normalize("NFKC")
-			.replace(/\s+/g, " ")
-			.trim()
+		nameText(value)
 			.replace(/\s+\d+(?:\.\d+)?\s*(?:fl\.?\s*oz|oz|ml|l)$/i, "");
-	const categoryMatch = (value) =>
-		normalize(categoryText(value))
-			.replace(/[\u2018\u2019]/g, "'")
-			.replace(/\s+(?:&|\+|and)\s+/g, " + ");
-	const categoryAliases = new Map();
-	const categoryLabels = new Map();
-	// Exact category aliases, not broad spelling or singularization rules.
-	for (const [label, ...aliases] of [
-		["Entr\u00e9es", "Entr\u00e9e"],
-		["\u00c0 la carte"],
-		["Breakfast", "Breakfast - Available All Day", "Hot Breakfast", "Breakfast Sandwich"],
-		["Chef's Table", "Chef Table"],
-		["Coffee + Espresso", "Coffee", "Hot Coffee", "Espresso", "Espresso + Coffee",
-			"Espresso Beverages", "Classic", "On Bar", "Specialty Coffee Series"],
-		["Cold Drinks", "Cold Dinks"],
-		["Himalaya", "Himalayan"],
-		["Pizza", "Pizzas", "Pizza By The Slice", "Napoli", "Veloce Slices"],
-		["Salads", "Signature Salads"],
-		["Sandwiches", "Half Sandwiches", "Whole Sandwiches", "Signature Sandwiches", "Cuban Sandwiches"],
-		["Sandwiches + More"],
-		["Sides + Dessert"],
-		["Small Plates", "Small Plate"],
-		["Soups + Sides"],
-		["Teriyaki", "Teriayki"],
-		["Tea + Elixirs", "Tea + Elixers"],
-	]) {
-		const key = categoryMatch(label);
-		categoryLabels.set(key, label);
-		for (const name of [label, ...aliases])
-			categoryAliases.set(categoryMatch(name), key);
-	}
-	const categoryKey = (value) => {
-		const key = categoryMatch(value);
-		return categoryAliases.get(key) ?? key;
+	// Exact aliases, not broad spelling or singularization rules.
+	const filterNames = {
+		categories: createNameNormalizer([
+			["Entr\u00e9es", "Entr\u00e9e"],
+			["\u00c0 la carte"],
+			["Breakfast", "Breakfast - Available All Day", "Hot Breakfast", "Breakfast Sandwich"],
+			["Chef's Table", "Chef Table"],
+			["Coffee + Espresso", "Coffee", "Hot Coffee", "Espresso", "Espresso + Coffee",
+				"Espresso Beverages", "Classic", "On Bar", "Specialty Coffee Series"],
+			["Cold Drinks", "Cold Dinks"],
+			["Himalaya", "Himalayan"],
+			["Pizza", "Pizzas", "Pizza By The Slice", "Napoli", "Veloce Slices"],
+			["Salads", "Signature Salads"],
+			["Sandwiches", "Half Sandwiches", "Whole Sandwiches", "Signature Sandwiches", "Cuban Sandwiches"],
+			["Sandwiches + More"],
+			["Sides + Dessert"],
+			["Small Plates", "Small Plate"],
+			["Soups + Sides"],
+			["Teriyaki", "Teriayki"],
+			["Tea + Elixirs", "Tea + Elixers"],
+		], categoryText, (value) => value.replace(/\s+(?:&|\+|and)\s+/gi, " + ")),
+		vendors: createNameNormalizer([
+			["Chef's Table", "Chefs Table"],
+			["Between the Bread", "Deli \u2013 Between The Bread"],
+			["Caffe Lusso"],
+			["Caffe Vita"],
+			["MiLa"],
+			["Boon Boona", "Boon Boona Coffee"],
+			["The Sub Shoppe", "Sub Shoppe"],
+			["Pacific Rim", "Pac Rim", "Pacific Rim Wok"],
+			["Himalaya Indian", "Himalaya"],
+			["Paparepas", "Paparepas Authentic Venezuelan Food"],
+			["OmaBap", "Brands - Omabap"],
+			["Adobe Flat", "Adobe Flat Mexican"],
+			["'Ono Hawaiian", "'Ono"],
+			["House of Yoshi", "HOY-Sushi"],
+			["&BACK", "Espresso - &BACK"],
+			["Comfort Food", "Comfort Food Favorites"],
+			["Market Fresh", "Market Fresh - Dim Sum", "Market Fresh - Inspired Salads",
+				"Market Fresh - Poke"],
+		]),
 	};
-	function registerCategory(value) {
-		const key = categoryKey(value);
-		if (!categoryLabels.has(key))
-			categoryLabels.set(
-				key,
-				categoryText(value).replace(/\s+(?:&|\+|and)\s+/gi, " + "),
-			);
-		return key;
-	}
 	const campusDay = () => {
 		const parts = Object.fromEntries(
 			dayFormatter.formatToParts(new Date()).map((p) => [p.type, p.value]),
@@ -114,8 +146,8 @@ setTimeout(() => {
 	let searchEdited = false;
 	const categoryName = (item) => item.category.split(" / ").at(-1);
 	const includedItem = (item) =>
-		!preferences.vendors.includes(item.vendor) &&
-		!preferences.categories.includes(categoryKey(categoryName(item)));
+		!preferences.vendors.includes(filterNames.vendors.key(item.vendor)) &&
+		!preferences.categories.includes(filterNames.categories.key(categoryName(item)));
 	const searchIdentity = (query) =>
 		normalize(query)
 			.replace(/[\u201c\u201d]/g, '"')
@@ -180,9 +212,7 @@ setTimeout(() => {
 				if (!valid) throw new Error(`Invalid saved ${field}`);
 				preferences[field] = field === "searches"
 					? value.slice(0, 50)
-					: field === "categories"
-						? [...new Set(value.map(registerCategory))]
-						: value;
+					: filterNames[field] ? filterNames[field].load(value) : value;
 			}
 		} catch (error) {
 			storageWarning(
@@ -195,8 +225,8 @@ setTimeout(() => {
 		if (!preferenceStorage) return;
 		try {
 			for (const [field, key] of Object.entries(storageKeys)) {
-				const value = field === "categories"
-					? preferences.categories.map((id) => categoryLabels.get(id) ?? id)
+				const value = filterNames[field]
+					? filterNames[field].save(preferences[field])
 					: preferences[field];
 				preferenceStorage.setItem(key, JSON.stringify(value));
 			}
@@ -824,23 +854,18 @@ setTimeout(() => {
 			throw new Error("menus.js is missing, blocked, or invalid");
 		data = validate(menuData);
 		const items = data.locations.flatMap((location) => location.items);
-		const options = (values, excluded) => [...new Set([...values, ...excluded])]
-			.sort(collator.compare)
-			.map((name) => ({
-				id: name,
-				name: name || "(Uncategorized)",
-				absent: !values.includes(name),
-			}));
 		filterOptions = {
 			locations: data.locations,
-			vendors: options(items.map((item) => item.vendor), preferences.vendors),
-			categories: options(
-				items.map((item) => registerCategory(categoryName(item))),
+			vendors: filterNames.vendors.options(
+				items.map((item) => item.vendor),
+				preferences.vendors,
+				"(Unnamed vendor)",
+			),
+			categories: filterNames.categories.options(
+				items.map(categoryName),
 				preferences.categories,
-			).map((option) => ({
-				...option,
-				name: categoryLabels.get(option.id) || "(Uncategorized)",
-			})),
+				"(Uncategorized)",
+			),
 		};
 		for (const location of data.locations)
 			for (const item of location.items) {
