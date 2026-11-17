@@ -58,16 +58,26 @@ check: test-rust
 	$(CARGO) clippy --manifest-path rust/Cargo.toml --all-targets --locked -- -D warnings
 
 setup-test:
+	@if ! env $(NPM) --version >/dev/null 2>&1; then \
+		printf '%s\n' 'Browser tests require working Node.js and npm. Install them from https://nodejs.org/ and rerun make test-web.' >&2; \
+		exit 1; \
+	fi
 	@if ! $(NODE) -e 'process.exit(Number(process.versions.node.split(".")[0]) < 22 ? 1 : 0)' 2>/dev/null; then \
 		printf '%s\n' 'Installing local Node.js and npm for browser tests...'; \
 		$(NPM) install --prefix .tmp/node-runtime --no-package-lock --no-save node@24 npm@11; \
 	fi
 
-	env $(NPM) ci
+	@if [ ! -f .tmp/test-packages-ready ] || \
+		[ package.json -nt .tmp/test-packages-ready ] || \
+		[ package-lock.json -nt .tmp/test-packages-ready ] || \
+		! env $(NPM) ls --all --include=dev --parseable >/dev/null 2>&1; then \
+		env $(NPM) ci --include=dev && mkdir -p .tmp && touch .tmp/test-packages-ready; \
+	fi
 	env $(NODE) node_modules/playwright/cli.js install chromium webkit
+	env $(NODE) tests/check-browsers.cjs
 
-test-web: html
-	env $(NODE) --test tests/web.test.cjs
+test-web: html setup-test
+	env $(NODE) --test tests/check-browsers.test.cjs tests/web.test.cjs
 
 test: test-rust test-web
 
@@ -91,8 +101,8 @@ help:
 		'make menus        Test/build the scraper, fetch web/menus.js, generate last-published.svg' \
 		'make test-rust    Run offline Rust unit and CLI tests' \
 		'make check        Run Rust tests, formatting checks, and Clippy' \
-		'make setup-test   Set up an optional local runtime, browser-test dependencies, and engines' \
-		'make test-web     Build HTML and run Chromium/WebKit tests (after setup-test)' \
+		'make setup-test   Ensure local test tooling/browsers; report missing system libraries' \
+		'make test-web     Set up dependencies, build HTML, and run Chromium/WebKit tests' \
 		'make test         Run Rust and browser tests' \
 		'make clean        Remove Rust build products and copied site assets; keep menus.js and badge' \
 		'make help         Show this help' \
