@@ -84,12 +84,14 @@ setTimeout(() => {
 		categories: createNameNormalizer([
 			["Entr\u00e9es", "Entr\u00e9e"],
 			["\u00c0 la carte"],
+			["Bakery", "Bobae Pastries", "Patisseries", "Cookies", "Cupcakes", "Bars + Brownies"],
 			["Breakfast", "Breakfast - Available All Day", "Hot Breakfast", "Breakfast Sandwich"],
 			["Chef's Table", "Chef Table"],
 			["Coffee + Espresso", "Coffee", "Hot Coffee", "Espresso", "Espresso + Coffee",
 				"Espresso Beverages", "Classic", "On Bar", "Specialty Coffee Series"],
 			["Cold Drinks", "Cold Dinks"],
 			["Himalaya", "Himalayan"],
+			["Pasta", "Pasta Plates", "BYO PASTA"],
 			["Pizza", "Pizzas", "Pizza By The Slice", "Napoli", "Veloce Slices"],
 			["Salads", "Signature Salads"],
 			["Sandwiches", "Half Sandwiches", "Whole Sandwiches", "Signature Sandwiches", "Cuban Sandwiches"],
@@ -121,6 +123,9 @@ setTimeout(() => {
 				"Market Fresh - Poke"],
 		]),
 	};
+	const categoryOverrides = [
+		["Well Bread Deli", "Build Your Own", "Sandwiches"],
+	];
 	const campusDay = () => {
 		const parts = Object.fromEntries(
 			dayFormatter.formatToParts(new Date()).map((p) => [p.type, p.value]),
@@ -144,10 +149,18 @@ setTimeout(() => {
 	let filterMode = "locations";
 	let filterOptions = { locations: [], vendors: [], categories: [] };
 	let searchEdited = false;
-	const categoryName = (item) => item.category.split(" / ").at(-1);
+	const originalCategoryName = (item) => item.category.split(" / ").at(-1);
+	const categoryName = (item) => {
+		const name = originalCategoryName(item);
+		const override = categoryOverrides.find(([vendor, category]) =>
+			filterNames.vendors.key(item.vendor) === filterNames.vendors.key(vendor) &&
+			filterNames.categories.key(name) === filterNames.categories.key(category));
+		return override ? override[2] : name;
+	};
 	const includedItem = (item) =>
 		!preferences.vendors.includes(filterNames.vendors.key(item.vendor)) &&
-		!preferences.categories.includes(filterNames.categories.key(categoryName(item)));
+		!preferences.categories.includes(filterNames.categories.key(categoryName(item))) &&
+		!preferences.categories.includes(filterNames.categories.key(originalCategoryName(item)));
 	const searchIdentity = (query) =>
 		normalize(query)
 			.replace(/[\u201c\u201d]/g, '"')
@@ -862,7 +875,12 @@ setTimeout(() => {
 				"(Unnamed vendor)",
 			),
 			categories: filterNames.categories.options(
-				items.map(categoryName),
+				[
+					...items.map(categoryName),
+					// Keep older, unscoped exclusions usable without excluding an entire new group.
+					...items.map(originalCategoryName).filter((name) =>
+						preferences.categories.includes(filterNames.categories.key(name))),
+				],
 				preferences.categories,
 				"(Uncategorized)",
 			),

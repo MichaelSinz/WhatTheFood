@@ -20,6 +20,8 @@ The **Filters** button offers three groups: Locations, Vendors, and Categories. 
 
 Category filters group equivalent spellings, case, accents, spacing, `&`/`+`/`and` separators, and size variants.  Breakfast, Coffee + Espresso, Sandwiches, Salads, and Pizza include equivalent vendor-specific names.  Pizza includes whole pizzas and slices; cauliflower-crust and Detroit-style pizzas have separate filters.  Mixed “+ More” categories, Cold Brew, and non-coffee drinks have separate filters.  Results display original category text; exclusions apply to the whole group.
 
+Bakery includes pastries, cookies, cupcakes, bars, and brownies.  Pasta includes pasta plates and build-your-own pasta.  Well Bread Deli's Build Your Own category shares the Sandwiches filter; other vendors' Build Your Own categories have a separate filter.  Mixed categories such as Pastries + Sandwiches have their own filters.
+
 Vendor filters group case, accent, spacing, and apostrophe variants, along with known alternate names for the same vendor.  Comfort Food and Market Fresh each share a filter across their menu variants.  Results display original vendor names; exclusions apply to the whole group.
 
 Focus the search box to pick from your six most-used searches, ranked by use with recent use breaking ties.  Suggestions narrow as you type.  A search counts when you leave the field, press Enter, open an item, or choose a suggestion, not on every keystroke.
@@ -115,8 +117,8 @@ rsvg-convert --width 180 --height 180 --output site/apple-touch-icon.png WhatThe
 | `make menus` | Run Rust tests, build the scraper, and fetch fresh menus |
 | `make test-rust` | Run offline Rust unit and CLI tests |
 | `make check` | Run Rust tests, formatting checks, and Clippy |
-| `make setup-test` | Set up an optional local runtime, Playwright tooling, and Chromium/WebKit engines |
-| `make test-web` | Build the HTML and run browser tests |
+| `make setup-test` | Ensure local test tooling and browser engines; report missing system libraries |
+| `make test-web` | Set up test dependencies, build the HTML, and run browser tests |
 | `make test` | Run both Rust and browser tests |
 | `make clean` | Remove Rust build products and copied site assets; retain menu data |
 
@@ -125,13 +127,14 @@ Rust sources, tests, manifests, and build rules are dependency-tracked.  Repeate
 For browser testing only, start with a working Node.js/npm installation, then:
 
 ```sh
-make setup-test
 make test-web
 ```
 
-If Node.js is older than 22, `make setup-test` automatically installs Node.js 24 and npm locally under `.tmp/node-runtime`, without changing the system installation.  Subsequent Makefile commands automatically use that local runtime, so no PATH changes are needed.
+`make test-web` runs `make setup-test` automatically.  Setup restores project-local npm dependencies when missing or when the manifests change, and downloads missing Chromium/WebKit engines under `.tmp/playwright`.  It does not use or change your preferred browser.
 
-On Linux, Playwright may also require system libraries; its `node node_modules/playwright/cli.js install-deps chromium webkit` command installs the supported dependencies and may need administrator privileges.  With the local runtime, prefix that command with `.tmp/node-runtime/node_modules/.bin/` so it uses the same Node.js.  Browser engines are stored under `.tmp/playwright`.  This setup is never invoked by a normal build.
+If Node.js is older than 22, setup installs Node.js 24 and npm locally under `.tmp/node-runtime`, without changing the system installation.  Makefile commands automatically use that local runtime, so no PATH changes are needed.
+
+Setup opens both headless browsers to check their native dependencies.  If system libraries are missing, it stops and prints the command to install them using the selected Node.js runtime and Playwright's `install-deps chromium webkit` command.  Run that command with any elevation your system requires, then rerun `make test-web`.  It installs native system dependencies, not system browsers; Make never runs it automatically.  Normal builds do not invoke browser-test setup.
 
 Browser tests run headless Chromium and WebKit against synthetic menus, including direct-file loading, static hosting, phrase search, frequent searches, sorting, persistent filters, changing menus, and the loading screen.  They emulate phone layouts, not an actual phone's software keyboard.
 
