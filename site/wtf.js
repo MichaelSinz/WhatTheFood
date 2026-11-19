@@ -602,18 +602,12 @@ setTimeout(() => {
 			warnings.push(
 				`These menus are for ${data.campusDay}, not today (${campusDay()}). Run the scraper to get today's menus.`,
 			);
-		if (!data.complete) {
-			const allFailed = data.locations.filter(
-				(l) => l.status === "error",
-			).length;
-			const allPartial = data.locations.filter(
-				(l) => l.status === "partial",
-			).length;
+		if (failed || partial) {
 			const problems = [];
-			if (allFailed)
-				problems.push(`${allFailed} ${allFailed === 1 ? "location failed" : "locations failed"} to load`);
-			if (allPartial)
-				problems.push(`${allPartial} ${allPartial === 1 ? "location has" : "locations have"} incomplete menus`);
+			if (failed)
+				problems.push(`${failed} ${failed === 1 ? "location failed" : "locations failed"} to load`);
+			if (partial)
+				problems.push(`${partial} ${partial === 1 ? "location has" : "locations have"} incomplete menus`);
 			warnings.push(
 				`Partial snapshot: ${problems.join("; ")}. See Filters for details.`,
 			);

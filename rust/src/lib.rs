@@ -276,13 +276,13 @@ fn zone(store: &Value) -> Result<Tz> {
 }
 
 fn minutes(value: &str) -> Result<u32> {
-    let value = value.trim().to_ascii_uppercase();
+    let normalized = value.trim().to_ascii_uppercase();
     for format in ["%I:%M %p", "%H:%M"] {
-        if let Ok(time) = chrono::NaiveTime::parse_from_str(&value, format) {
+        if let Ok(time) = chrono::NaiveTime::parse_from_str(&normalized, format) {
             return Ok(time.hour() * 60 + time.minute());
         }
     }
-    bail!("Invalid clock time: {value}")
+    bail!("Invalid clock time: {value:?}")
 }
 
 /// Choose today's earliest complete pickup interval at noon or later.
@@ -315,16 +315,28 @@ fn slot(store: &Value, scheduling: &Value, now: DateTime<Utc>) -> Result<Option<
         return Ok(None);
     };
     let mut windows = optional_list(availability, "openWindowTimeFrames")?.to_vec();
+    let mut window_path = "availableAt.openWindowTimeFrames";
     if windows.is_empty()
         && availability.get("opens").is_some()
         && availability.get("closes").is_some()
     {
         windows.push(availability.clone());
+        window_path = "availableAt";
     }
     let mut candidates = Vec::new();
-    for window in windows {
-        let opens = minutes(&text(&window, "opens")?)?;
-        let closes = minutes(&text(&window, "closes")?)?;
+    for (index, window) in windows.into_iter().enumerate() {
+        let path = if window_path == "availableAt" {
+            window_path.to_owned()
+        } else {
+            format!("{window_path}[{index}]")
+        };
+        let read_time = |field| {
+            text(&window, field)
+                .and_then(|value| minutes(&value))
+                .with_context(|| format!("Reading pickup hours {path}.{field}"))
+        };
+        let opens = read_time("opens")?;
+        let closes = read_time("closes")?;
         let closes = if closes == 0 && opens > 0 {
             24 * 60
         } else {
@@ -362,8 +374,10 @@ fn opening_window(
     let (Some(open), Some(close)) = (availability.get("open"), availability.get("close")) else {
         return Ok(None);
     };
-    let start = minutes(open.as_str().context("Invalid vendor opening time")?)?;
-    let end = minutes(close.as_str().context("Invalid vendor closing time")?)?;
+    let start = minutes(open.as_str().context("Invalid vendor opening time")?)
+        .context("Reading vendor hours availableAt.open")?;
+    let end = minutes(close.as_str().context("Invalid vendor closing time")?)
+        .context("Reading vendor hours availableAt.close")?;
     ensure!(
         end > start,
         "Overnight or empty vendor opening windows are not supported"
@@ -1094,6 +1108,52 @@ mod tests {
         let mut overnight = store();
         overnight["availableAt"] = json!({"opens":"10:00 pm", "closes":"2:00 am"});
         assert!(slot(&overnight, &scheduling, Utc::now()).is_err());
+    }
+
+    #[test]
+    fn clock_errors_identify_fields_windows_and_raw_values() {
+        let scheduling = json!({"intervalTime": 15, "bufferTime": 20});
+        for field in ["opens", "closes"] {
+            for value in ["", " \t ", "not a time"] {
+                for nested in [false, true] {
+                    let mut store = store();
+                    let mut window = json!({"opens": "7:30 am", "closes": "2:00 pm"});
+                    window[field] = json!(value);
+                    store["availableAt"] = if nested {
+                        json!({"openWindowTimeFrames": [
+                            {"opens": "7:30 am", "closes": "2:00 pm"},
+                            window
+                        ]})
+                    } else {
+                        window
+                    };
+                    let error = slot(&store, &scheduling, now("2026-10-23T17:00:00Z")).unwrap_err();
+                    let message = format!("{error:#}");
+                    let path = if nested {
+                        format!("availableAt.openWindowTimeFrames[1].{field}")
+                    } else {
+                        format!("availableAt.{field}")
+                    };
+                    assert!(message.contains(&path), "{message}");
+                    assert!(
+                        message.contains(&format!("Invalid clock time: {value:?}")),
+                        "{message}"
+                    );
+                }
+            }
+        }
+        for field in ["open", "close"] {
+            let mut concept = json!({"availableAt": {"open": "7:30 am", "close": "2:00 pm"}});
+            concept["availableAt"][field] = json!("");
+            let error =
+                opening_window(&concept, &store(), now("2026-10-23T17:00:00Z")).unwrap_err();
+            let message = format!("{error:#}");
+            assert!(
+                message.contains(&format!("vendor hours availableAt.{field}")),
+                "{message}"
+            );
+            assert!(message.contains("Invalid clock time: \"\""), "{message}");
+        }
     }
 
     #[test]

@@ -541,6 +541,45 @@ for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]]) {
     } finally { await browser.close(); await fs.rm(fixture.directory, { recursive: true }); }
   });
 
+  test(`${name}: load warnings count only enabled locations and preserve stale warnings`, async () => {
+    const data = snapshot("2026-10-27", true);
+    data.schemaVersion = 2;
+    data.locations[0].status = "partial";
+    data.locations[0].error = "One vendor unavailable";
+    data.locations[0].items = [data.locations[0].items[0]];
+    const fixture = await site(data);
+    const browser = await engine.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.clock.install({ time: new Date("2026-10-27T19:00:00Z") });
+      await page.goto(fixture.url);
+      await page.locator("#loading-screen").waitFor({ state: "hidden" });
+      const warning = page.locator("#data-warning");
+      assert.match(await warning.textContent(), /1 location failed to load; 1 location has incomplete menus/);
+      await page.locator("#locations-button").click();
+      await page.getByRole("switch", { name: "Failed", exact: true }).uncheck();
+      assert.match(await warning.textContent(), /1 location has incomplete menus/);
+      assert.doesNotMatch(await warning.textContent(), /failed to load/);
+      await page.getByRole("switch", { name: "Cafe 2", exact: true }).uncheck();
+      assert.equal(await warning.isVisible(), false);
+      assert.match(await page.locator("#location-list").textContent(), /HTTP 403/);
+      await page.reload();
+      await page.locator("#loading-screen").waitFor({ state: "hidden" });
+      assert.equal(await warning.isVisible(), false, "Saved location exclusions suppress warnings on reload");
+      await page.clock.setSystemTime(new Date("2026-10-28T19:00:00Z"));
+      await page.clock.runFor(1000);
+      assert.match(await warning.textContent(), /not today/);
+      assert.doesNotMatch(await warning.textContent(), /Partial snapshot/);
+      await page.locator("#locations-button").click();
+      await page.getByRole("switch", { name: "Failed", exact: true }).check();
+      assert.match(await warning.textContent(), /1 location failed to load/);
+      assert.match(await warning.textContent(), /not today/);
+      assert.doesNotMatch(await warning.textContent(), /incomplete menus/);
+      await page.getByRole("switch", { name: "Cafe 2", exact: true }).check();
+      assert.match(await warning.textContent(), /1 location failed to load; 1 location has incomplete menus/);
+    } finally { await browser.close(); await fs.rm(fixture.directory, { recursive: true }); }
+  });
+
   test(`${name}: partial cafe menus remain searchable and explicitly incomplete`, async () => {
     const data = snapshot();
     data.schemaVersion = 2;
