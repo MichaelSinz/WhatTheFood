@@ -617,7 +617,7 @@ for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]]) {
 
   test(`${name}: category aliases share filters and normalize saved exclusions across menu days`, async () => {
     const groups = [
-      ["Entr\u00e9es", ["Entrees", "Entr\u00e9e", "Entr\u00e9es"]],
+      ["Entr\u00e9es", ["Entrees", "Entr\u00e9e", "Entr\u00e9es", "Watercress Entrees"]],
       ["\u00c0 la carte", ["A La Carte", "\u00c0 la carte"]],
       ["Bakery", ["Bakery", "Bobae Pastries", "Patisseries", "Cookies", "Cupcakes", "Bars + Brownies"]],
       ["Breakfast", ["Breakfast", "Breakfast ", "BREAKFAST", "\u00a0Breakfast\t",
@@ -628,11 +628,12 @@ for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]]) {
         "Specialty Coffee Series 16oz", "Specialty Coffee Series 20oz"]],
       ["Cold Drinks", ["Cold Dinks", "Cold Drinks"]],
       ["Himalaya", ["Himalaya", "Himalayan"]],
-      ["Pasta", ["Pasta", "Pasta Plates", "BYO PASTA"]],
+      ["Pasta", ["Pasta", "Pasta Plates", "BYO PASTA", "Spaghetti"]],
       ["Pizza", ["Pizza", "Pizzas", "Pizza By The Slice", "Napoli", "Veloce Slices"]],
+      ["Protein", ["Protein", "Protein by the Half Pound"]],
       ["Salads", ["Salads", "Signature Salads"]],
       ["Sandwiches", ["Sandwiches", "Half Sandwiches", "Whole Sandwiches",
-        "Signature Sandwiches", "Cuban Sandwiches"]],
+        "Signature Sandwiches", "Cuban Sandwiches", "Grinders"]],
       ["Sandwiches + More", ["Sandwiches & More", "Sandwiches + More"]],
       ["Sides + Dessert", ["Sides & Dessert", "Sides + Dessert"]],
       ["Small Plates", ["Small Plate", "Small Plates"]],
@@ -653,7 +654,7 @@ for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]]) {
     const distinct = [
       "Burgers + More", "Cold Brew", "Hot Drinks", "Non-Coffee", "Entr\u00e9es + Sides",
       "Cauliflower Crust Pizza", "Detroit Style Pizza",
-      "Watercress Entrees", "Large Plate", "Specialty Coffee Series 2", "16oz",
+      "Large Plate", "Specialty Coffee Series 2", "16oz",
       "Pastries + Sandwiches", "Desserts", "Soups", "Sides",
     ];
     const categories = [...groups.flatMap(([, variants]) => variants), ...distinct];
@@ -678,7 +679,8 @@ for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]]) {
         const toggle = page.getByRole("switch", { name: label, exact: true });
         assert.equal(await toggle.count(), 1, label);
         await toggle.uncheck();
-        assert.equal(await page.locator("tbody tr").count(), categories.length - variants.length, label);
+        assert.match(await page.locator("#summary").textContent(),
+          new RegExp(`^${categories.length - variants.length} matches /`), label);
         await toggle.check();
       }
       for (const label of distinct)
@@ -736,6 +738,62 @@ for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]]) {
       await page.getByRole("switch", { name: "Entr\u00e9es", exact: true }).check();
       assert.equal(await page.locator("tbody tr").count(), 2);
       assert.deepEqual(errors, []);
+    } finally { await browser.close(); await fs.rm(fixture.directory, { recursive: true }); }
+  });
+
+  test(`${name}: instruction and marketing categories use vendor-scoped food filters`, async () => {
+    const cases = [
+      [" WELL\u00a0BREAD DELI ", "*Proceed to Grill Station for Pickup*", "Sandwiches"],
+      ["L\u2019 Experience", "Made To Order", "Bakery"],
+      ["PINKABELLA", "Specials", "Bakery"],
+    ];
+    const data = snapshot(), first = data.locations[0].items[0];
+    data.locations[0].items = cases.flatMap(([vendor, category], index) => [
+      { ...first, id: first.id + index, vendor, category: `Menu / ${category}`, name: `Scoped ${index}` },
+      { ...first, id: first.id + index + "other", vendor: "Other Vendor", category, name: `Other ${index}` },
+    ]);
+    data.locations[1].items = [];
+    const fixture = await site(data);
+    const browser = await engine.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.goto(fixture.url);
+      await page.locator("#loading-screen").waitFor({ state: "hidden" });
+      await page.getByRole("button", { name: "Scoped 0", exact: true }).click();
+      assert.equal(await page.locator("#detail-category").textContent(),
+        "Menu / *Proceed to Grill Station for Pickup*");
+      await page.locator("#detail-dialog [data-close]").click();
+      await page.locator("#locations-button").click();
+      await page.getByRole("radio", { name: "Categories", exact: true }).check();
+      await page.getByRole("switch", { name: "Sandwiches", exact: true }).uncheck();
+      await page.getByRole("switch", { name: "Bakery", exact: true }).uncheck();
+      assert.deepEqual((await page.locator("tbody .item-button").allTextContents()).sort(),
+        ["Other 0", "Other 1", "Other 2"]);
+      await page.reload();
+      await page.locator("#loading-screen").waitFor({ state: "hidden" });
+      assert.deepEqual((await page.locator("tbody .item-button").allTextContents()).sort(),
+        ["Other 0", "Other 1", "Other 2"]);
+      await page.evaluate(names => localStorage.setItem("what-the-food.categories.v1",
+        JSON.stringify(names)), cases.map(([, category]) => category));
+      await page.reload();
+      await page.locator("#loading-screen").waitFor({ state: "hidden" });
+      assert.equal(await page.locator("tbody tr").count(), 0,
+        "Older exclusions still apply to original category names under scoped mappings");
+      data.locations[0].items = [{
+        ...first, vendor: "Other Vendor", category: "Bakery", name: "Unrelated pastry",
+      }];
+      await fs.writeFile(path.join(fixture.directory, "menus.js"), `const menuData = ${JSON.stringify(data)};\n`);
+      await page.reload();
+      await page.locator("#loading-screen").waitFor({ state: "hidden" });
+      assert.equal(await page.locator("tbody .item-button").textContent(), "Unrelated pastry",
+        "Older scoped-source exclusions do not broaden to all Bakery items");
+      await page.locator("#locations-button").click();
+      await page.getByRole("radio", { name: "Categories", exact: true }).check();
+      for (const [, category] of cases) {
+        const toggle = page.getByRole("switch", { name: category, exact: true });
+        assert.equal(await toggle.isChecked(), false);
+        assert.match(await toggle.locator("..").locator("..").textContent(), /Not in this snapshot/);
+      }
     } finally { await browser.close(); await fs.rm(fixture.directory, { recursive: true }); }
   });
 

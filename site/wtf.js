@@ -82,7 +82,7 @@ setTimeout(() => {
 	// Exact aliases, not broad spelling or singularization rules.
 	const filterNames = {
 		categories: createNameNormalizer([
-			["Entr\u00e9es", "Entr\u00e9e"],
+			["Entr\u00e9es", "Entr\u00e9e", "Watercress Entrees"],
 			["\u00c0 la carte"],
 			["Bakery", "Bobae Pastries", "Patisseries", "Cookies", "Cupcakes", "Bars + Brownies"],
 			["Breakfast", "Breakfast - Available All Day", "Hot Breakfast", "Breakfast Sandwich"],
@@ -91,10 +91,11 @@ setTimeout(() => {
 				"Espresso Beverages", "Classic", "On Bar", "Specialty Coffee Series"],
 			["Cold Drinks", "Cold Dinks"],
 			["Himalaya", "Himalayan"],
-			["Pasta", "Pasta Plates", "BYO PASTA"],
+			["Pasta", "Pasta Plates", "BYO PASTA", "Spaghetti"],
 			["Pizza", "Pizzas", "Pizza By The Slice", "Napoli", "Veloce Slices"],
+			["Protein", "Protein by the Half Pound"],
 			["Salads", "Signature Salads"],
-			["Sandwiches", "Half Sandwiches", "Whole Sandwiches", "Signature Sandwiches", "Cuban Sandwiches"],
+			["Sandwiches", "Half Sandwiches", "Whole Sandwiches", "Signature Sandwiches", "Cuban Sandwiches", "Grinders"],
 			["Sandwiches + More"],
 			["Sides + Dessert"],
 			["Small Plates", "Small Plate"],
@@ -125,6 +126,9 @@ setTimeout(() => {
 	};
 	const categoryOverrides = [
 		["Well Bread Deli", "Build Your Own", "Sandwiches"],
+		["Well Bread Deli", "*Proceed to Grill Station for Pickup*", "Sandwiches"],
+		["L' Experience", "Made To Order", "Bakery"],
+		["Pinkabella", "Specials", "Bakery"],
 	];
 	const campusDay = () => {
 		const parts = Object.fromEntries(
